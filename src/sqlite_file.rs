@@ -2,48 +2,38 @@ extern crate clap;
 extern crate sqlite;
 extern crate walkdir;
 
-use std::fmt;
 use std::fs::{metadata, File};
-use std::io::Read;
+use std::io::{self, Read};
 use std::iter::Iterator;
 use std::path::{Path, PathBuf};
 
-fn size_fmt(size: Option<u64>) -> String {
-    match size {
-        Some(value) => value.to_string(),
-        None => "?".to_string(),
+#[derive(Debug)]
+pub struct VacuumResult<'a> {
+    db_file: &'a SQLiteFile,
+    size_before: u64,
+    size_after: u64,
+}
+
+impl<'a> VacuumResult<'a> {
+    pub fn delta(&self) -> u64 {
+        self.size_before - self.size_after
     }
 }
 
 #[derive(Debug)]
 pub struct SQLiteFile {
     path: PathBuf,
-    size_before: Option<u64>,
-    size_after: Option<u64>,
-}
-
-impl fmt::Display for SQLiteFile {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{} ({} -> {})",
-            self.path.to_str().unwrap_or("<path?>"),
-            size_fmt(self.size_before),
-            size_fmt(self.size_after)
-        )
-    }
 }
 
 impl SQLiteFile {
     fn new(path: &Path) -> Self {
         Self {
-            size_before: match metadata(path) {
-                Ok(metadata) => Some(metadata.len()),
-                Err(_) => None,
-            },
-            size_after: None,
             path: PathBuf::from(path),
         }
+    }
+
+    pub fn path<'a>(&'a self) -> &'a Path {
+        &self.path
     }
 
     pub fn get(path: &Path, aggresive: bool) -> Option<Self> {
@@ -77,33 +67,25 @@ impl SQLiteFile {
         }
     }
 
-    pub fn vacuum(&mut self) -> Result<(), sqlite::Error> {
-        sqlite::open(&self.path)
-            .and_then(|connection| {
-                println!("Connected to {:?}", &self.path);
-                connection.execute("VACUUM;").and_then(|_| {
-                    println!("Vacuum'd {:?}", &self.path);
-                    Ok(connection)
-                })
-            })
-            .and_then(|connection| {
-                connection.execute("REINDEX;").and_then(|_| {
-                    println!("Reindexed {:?}", &self.path);
-                    Ok(())
-                })
-            })
-            .and_then(|_| {
-                if let Ok(metadata) = metadata(&self.path) {
-                    self.size_after = Some(metadata.len());
-                }
-                Ok(())
-            })
-    }
+    pub fn vacuum<'a>(&'a self) -> io::Result<VacuumResult<'a>> {
+        let size_before = metadata(&self.path)?.len();
 
-    pub fn delta(&self) -> Option<u64> {
-        match (self.size_before, self.size_after) {
-            (Some(size_before), Some(size_after)) => Some(size_after - size_before),
-            _ => None,
-        }
+        sqlite::open(&self.path)
+            .and_then(|connection| connection.execute("VACUUM;").and_then(|_| Ok(connection)))
+            .or_else(|error| Err(io::Error::new(io::ErrorKind::Other, Box::new(error))))
+            .and_then(|connection| {
+                connection
+                    .execute("REINDEX;")
+                    .or_else(|error| Err(io::Error::new(io::ErrorKind::Other, Box::new(error))))
+            })
+            .or_else(|error| Err(io::Error::new(io::ErrorKind::Other, Box::new(error))))
+            .and_then(|_| {
+                Ok(VacuumResult {
+                    db_file: &self,
+                    size_before,
+                    size_after: metadata(&self.path)?.len(),
+                })
+            })
+            .or_else(|error| Err(io::Error::new(io::ErrorKind::Other, Box::new(error))))
     }
 }

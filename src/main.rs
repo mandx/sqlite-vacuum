@@ -1,6 +1,10 @@
 extern crate clap;
+extern crate colored;
 extern crate sqlite;
 extern crate walkdir;
+
+mod byte_format;
+mod sqlite_file;
 
 use std::env::current_dir;
 use std::fs::metadata;
@@ -9,10 +13,12 @@ use std::iter::Iterator;
 use std::path::PathBuf;
 use std::process;
 
+use byte_format::format_size;
 use clap::{App, Arg, ArgMatches};
+use colored::*;
 use walkdir::WalkDir;
 
-mod sqlite_file;
+use sqlite_file::SQLiteFile;
 
 fn cli_args<'a>() -> ArgMatches<'a> {
     App::new("sqlite-vacuum")
@@ -59,18 +65,34 @@ fn main() -> io::Result<()> {
             Ok(entry) => Some(PathBuf::from(entry.path())),
             Err(_) => None,
         })
-        .filter_map(|path| sqlite_file::SQLiteFile::get(&path, aggresive));
+        .filter_map(|path| SQLiteFile::get(&path, aggresive));
+
+    let mut total_delta: u64 = 0;
 
     for mut db_file in items {
-        match db_file.vacuum() {
-            Ok(_) => {
-                println!("Ok {}", db_file);
+        let status = match db_file.vacuum() {
+            Ok(result) => {
+                let delta = result.delta();
+                total_delta = total_delta + delta;
+                format_size(delta as f64).yellow()
             }
-            Err(error) => {
-                println!("Error vacuuming {:?}: {:?}", db_file, error);
-            }
-        }
+            Err(error) => format!("{:?}", error).red(),
+        };
+
+        println!(
+            "{} {} {}",
+            "Found".bold().green(),
+            db_file.path().to_str().unwrap_or("?").white(),
+            status.bold(),
+        );
     }
+
+    println!(
+        "{} {} {}",
+        "Done.".bold().bright_green(),
+        "Total size reduction:".bright_white(),
+        format_size(total_delta as f64).bold().bright_yellow(),
+    );
 
     Ok(())
 }
