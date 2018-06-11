@@ -4,7 +4,6 @@ extern crate walkdir;
 
 use std::fs::{metadata, File};
 use std::io::{self, Read};
-use std::iter::Iterator;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
@@ -18,6 +17,13 @@ impl<'a> VacuumResult<'a> {
     pub fn delta(&self) -> u64 {
         self.size_before - self.size_after
     }
+}
+
+#[derive(Debug)]
+pub enum LoadResult<T> {
+    Ok(T),
+    Err(io::Error),
+    None,
 }
 
 #[derive(Debug)]
@@ -36,33 +42,44 @@ impl SQLiteFile {
         &self.path
     }
 
-    pub fn get(path: &Path, aggresive: bool) -> Option<Self> {
-        if aggresive {
-            if let Ok(file) = File::open(path) {
-                let magic: Vec<u8> = vec![
-                    0x53, 0x51, 0x4c, 0x69, 0x74, 0x65, 0x20, 0x66, 0x6f, 0x72, 0x6d, 0x61, 0x74,
-                    0x20, 0x33, 0x00,
-                ];
-
-                let buffer: Vec<u8> = file
-                    .bytes()
-                    .take(magic.len())
-                    .map(|r| r.unwrap_or(0)) // or deal explicitly with failure!
-                    .collect();
-
-                if buffer != magic {
-                    return None;
-                }
-
-                return Some(Self::new(path));
+    pub fn load(path: &Path, aggresive: bool) -> LoadResult<Self> {
+        if let Ok(metadata) = metadata(path) {
+            if !metadata.is_file() {
+                return LoadResult::None;
             }
+        }
 
-            None
+        if aggresive {
+            match File::open(path) {
+                Ok(file) => {
+                    let magic: Vec<u8> = vec![
+                        0x53, 0x51, 0x4c, 0x69, 0x74, 0x65, 0x20, 0x66, 0x6f, 0x72, 0x6d, 0x61,
+                        0x74, 0x20, 0x33, 0x00,
+                    ];
+
+                    let mut buffer: Vec<u8> = Vec::with_capacity(magic.len());
+                    for byte in file.bytes().take(magic.len()) {
+                        if let Err(error) = byte {
+                            return LoadResult::Err(error);
+                        }
+                        buffer.push(byte.unwrap())
+                    }
+
+                    let buffer = buffer;
+
+                    if buffer != magic {
+                        return LoadResult::None;
+                    }
+
+                    LoadResult::Ok(Self::new(path))
+                }
+                Err(error) => LoadResult::Err(error),
+            }
         } else {
             match path.extension().and_then(|ext| ext.to_str()) {
-                Some("db") => Some(Self::new(path)),
-                Some("sqlite") => Some(Self::new(path)),
-                _ => None,
+                Some("db") => LoadResult::Ok(Self::new(path)),
+                Some("sqlite") => LoadResult::Ok(Self::new(path)),
+                _ => LoadResult::None,
             }
         }
     }
@@ -89,3 +106,7 @@ impl SQLiteFile {
             .or_else(|error| Err(io::Error::new(io::ErrorKind::Other, Box::new(error))))
     }
 }
+
+#[cfg(test)]
+#[path = "./sqlite_file_tests.rs"]
+mod byte_format_tests;

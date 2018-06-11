@@ -16,9 +16,8 @@ use std::process;
 use byte_format::format_size;
 use clap::{App, Arg, ArgMatches};
 use colored::*;
+use sqlite_file::{LoadResult, SQLiteFile};
 use walkdir::WalkDir;
-
-use sqlite_file::SQLiteFile;
 
 fn cli_args<'a>() -> ArgMatches<'a> {
     App::new("sqlite-vacuum")
@@ -65,7 +64,14 @@ fn main() -> io::Result<()> {
             Ok(entry) => Some(PathBuf::from(entry.path())),
             Err(_) => None,
         })
-        .filter_map(|path| SQLiteFile::get(&path, aggresive));
+        .filter_map(|path| match SQLiteFile::load(&path, aggresive) {
+            LoadResult::Ok(db_file) => Some(db_file),
+            LoadResult::Err(error) => {
+                eprintln!("Error reading from `{:?}`: {:?}", &path, error);
+                None
+            }
+            LoadResult::None => None,
+        });
 
     let mut total_delta: u64 = 0;
 
