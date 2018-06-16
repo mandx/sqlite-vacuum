@@ -6,6 +6,8 @@ authors = ["Armando Perez <gmandx@gmail.com>"]
 [dependencies]
 clap = "2.31.2"
 colored = "1.6.0"
+crossbeam-channel = "0.2.1"
+num_cpus = "1.8.0"
 sqlite = "0.23.9"
 walkdir = "2.1.4"
 

@@ -1,6 +1,4 @@
-extern crate clap;
 extern crate sqlite;
-extern crate walkdir;
 
 use std::fs::{metadata, File};
 use std::io::{self, Read};
@@ -58,14 +56,16 @@ impl SQLiteFile {
                     ];
 
                     let mut buffer: Vec<u8> = Vec::with_capacity(magic.len());
+                    // We loop over the `take` iterator instead of `collect`ing
+                    // directly into the buffer vector because every byte read
+                    // comes as a `Result`, and any error in any read means we
+                    // end with an error.
                     for byte in file.bytes().take(magic.len()) {
                         if let Err(error) = byte {
                             return LoadResult::Err(error);
                         }
                         buffer.push(byte.unwrap())
                     }
-
-                    let buffer = buffer;
 
                     if buffer != magic {
                         return LoadResult::None;
