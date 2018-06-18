@@ -13,8 +13,8 @@ pub struct Arguments {
 }
 
 impl Arguments {
-    pub fn get() -> Result<Self, String> {
-        let matches = App::new("sqlite-vacuum")
+    pub fn get() -> Result<Self, clap::Error> {
+        let app = App::new("sqlite-vacuum")
             .arg(
                 Arg::with_name("directory")
                     .value_name("DIRECTORY")
@@ -25,11 +25,17 @@ impl Arguments {
                 Arg::with_name("aggresive")
                     .short("a")
                     .long("aggresive")
-                    .help("Inspect the file's header to check if it is a SQLite database, instead of just checking the extension. Just checking the extension is faster, but it can lead to false positives.")
+                    .help("Inspect the file's header to check if it is a SQLite database, instead of just checking the extension (which is faster, but it can lead to false positives).")
                     .takes_value(false)
                     .required(false)
-            )
-            .get_matches();
+            );
+
+        let matches = match app.get_matches_safe() {
+            Ok(matches) => matches,
+            Err(error) => {
+                return Err(error);
+            }
+        };
 
         let cwd = match matches.value_of("directory") {
             Some(arg_value) => {
@@ -38,7 +44,10 @@ impl Arguments {
                     metadata(&path).expect(&format!("`{}` is not a valid path", arg_value));
 
                 if !metadata.is_dir() {
-                    return Err(format!("`{}` is not a directory", arg_value));
+                    return Err(clap::Error::with_description(
+                        &format!("`{}` is not a directory", arg_value),
+                        clap::ErrorKind::InvalidValue,
+                    ));
                 }
 
                 path

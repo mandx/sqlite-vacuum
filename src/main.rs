@@ -7,7 +7,6 @@ extern crate walkdir;
 mod byte_format;
 mod sqlite_file;
 
-use std::io;
 use std::iter::Iterator;
 use std::path::PathBuf;
 use std::sync::{atomic, Arc};
@@ -56,14 +55,14 @@ fn start_threads(
     handles
 }
 
-// Alias type to avoid verbosity / long lines 
+// Alias type to avoid verbosity / long lines
 type ChannelAPI<T> = (channel::Sender<T>, channel::Receiver<T>);
 
-fn main() -> io::Result<()> {
+fn main() {
     let args = match cli_args::Arguments::get() {
         Ok(args) => args,
-        Err(error_msg) => {
-            return Err(io::Error::new(io::ErrorKind::Other, error_msg));
+        Err(error) => {
+            error.exit();
         }
     };
 
@@ -107,6 +106,4 @@ fn main() -> io::Result<()> {
             .bold()
             .bright_yellow(),
     );
-
-    Ok(())
 }
