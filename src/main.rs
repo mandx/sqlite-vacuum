@@ -1,6 +1,8 @@
 extern crate clap;
 extern crate colored;
 extern crate crossbeam_channel;
+#[macro_use]
+extern crate lazy_static;
 extern crate num_cpus;
 extern crate walkdir;
 

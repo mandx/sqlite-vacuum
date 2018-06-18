@@ -4,6 +4,13 @@ use std::fs::{metadata, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
+lazy_static! {
+    static ref SQLITE_MAGIC: Vec<u8> = vec![
+        0x53, 0x51, 0x4c, 0x69, 0x74, 0x65, 0x20, 0x66, 0x6f, 0x72, 0x6d, 0x61, 0x74, 0x20, 0x33,
+        0x00,
+    ];
+}
+
 #[derive(Debug)]
 pub struct VacuumResult<'a> {
     db_file: &'a SQLiteFile,
@@ -50,24 +57,19 @@ impl SQLiteFile {
         if aggresive {
             match File::open(path) {
                 Ok(file) => {
-                    let magic: Vec<u8> = vec![
-                        0x53, 0x51, 0x4c, 0x69, 0x74, 0x65, 0x20, 0x66, 0x6f, 0x72, 0x6d, 0x61,
-                        0x74, 0x20, 0x33, 0x00,
-                    ];
-
-                    let mut buffer: Vec<u8> = Vec::with_capacity(magic.len());
+                    let mut buffer: Vec<u8> = Vec::with_capacity(SQLITE_MAGIC.len());
                     // We loop over the `take` iterator instead of `collect`ing
                     // directly into the buffer vector because every byte read
                     // comes as a `Result`, and any error in any read means we
                     // end with an error.
-                    for byte in file.bytes().take(magic.len()) {
+                    for byte in file.bytes().take(SQLITE_MAGIC.len()) {
                         if let Err(error) = byte {
                             return LoadResult::Err(error);
                         }
                         buffer.push(byte.unwrap())
                     }
 
-                    if buffer != magic {
+                    if buffer != *SQLITE_MAGIC {
                         return LoadResult::None;
                     }
 
