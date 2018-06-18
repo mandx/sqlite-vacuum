@@ -10,6 +10,7 @@ mod sqlite_file;
 use std::io;
 use std::iter::Iterator;
 use std::path::PathBuf;
+use std::sync::{atomic, Arc};
 use std::thread;
 
 use byte_format::format_size;
@@ -22,22 +23,21 @@ mod cli_args;
 
 fn start_threads(
     db_file_receiver: channel::Receiver<SQLiteFile>,
-    delta_sender: channel::Sender<u64>,
+    total_delta: Arc<atomic::AtomicUsize>,
 ) -> Vec<thread::JoinHandle<()>> {
     let cpu_count = num_cpus::get();
     let mut handles: Vec<thread::JoinHandle<()>> = Vec::with_capacity(cpu_count);
 
     for _ in 0..cpu_count {
         let receiver = db_file_receiver.clone();
-        let sender = delta_sender.clone();
+        let total_delta = total_delta.clone();
 
         handles.push(thread::spawn(move || {
             for db_file in receiver {
                 let status = match db_file.vacuum() {
                     Ok(result) => {
                         let delta = result.delta();
-                        sender.send(delta);
-
+                        total_delta.fetch_add(delta as usize, atomic::Ordering::SeqCst);
                         format_size(delta as f64).yellow()
                     }
                     Err(error) => format!("{:?}", error).red(),
@@ -82,9 +82,9 @@ fn main() -> io::Result<()> {
         });
 
     let (file_sender, file_receiver): ChannelAPI<SQLiteFile> = channel::unbounded();
-    let (delta_sender, delta_receiver): ChannelAPI<u64> = channel::unbounded();
+    let total_delta = Arc::new(atomic::AtomicUsize::new(0));
 
-    let thread_handles = start_threads(file_receiver, delta_sender);
+    let thread_handles = start_threads(file_receiver, total_delta.clone());
 
     for mut db_file in items {
         file_sender.send(db_file);
@@ -98,16 +98,13 @@ fn main() -> io::Result<()> {
         }
     }
 
-    let mut total_delta: u64 = 0;
-    for delta in delta_receiver {
-        total_delta = total_delta + delta;
-    }
-
     println!(
         "{} {} {}",
         "Done.".bold().bright_green(),
         "Total size reduction:".bright_white(),
-        format_size(total_delta as f64).bold().bright_yellow(),
+        format_size(total_delta.load(atomic::Ordering::SeqCst) as f64)
+            .bold()
+            .bright_yellow(),
     );
 
     Ok(())
