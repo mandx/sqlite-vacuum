@@ -22,8 +22,8 @@ use walkdir::WalkDir;
 mod cli_args;
 
 fn start_threads(
-    db_file_receiver: channel::Receiver<SQLiteFile>,
-    total_delta: Arc<atomic::AtomicUsize>,
+    db_file_receiver: &channel::Receiver<SQLiteFile>,
+    total_delta: &Arc<atomic::AtomicUsize>,
 ) -> Vec<thread::JoinHandle<()>> {
     let cpu_count = num_cpus::get();
     let mut handles: Vec<thread::JoinHandle<()>> = Vec::with_capacity(cpu_count);
@@ -56,6 +56,7 @@ fn start_threads(
     handles
 }
 
+// Alias type to avoid verbosity / long lines 
 type ChannelAPI<T> = (channel::Sender<T>, channel::Receiver<T>);
 
 fn main() -> io::Result<()> {
@@ -84,7 +85,7 @@ fn main() -> io::Result<()> {
     let (file_sender, file_receiver): ChannelAPI<SQLiteFile> = channel::unbounded();
     let total_delta = Arc::new(atomic::AtomicUsize::new(0));
 
-    let thread_handles = start_threads(file_receiver, total_delta.clone());
+    let thread_handles = start_threads(&file_receiver, &total_delta);
 
     for mut db_file in items {
         file_sender.send(db_file);

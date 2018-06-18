@@ -36,7 +36,7 @@ impl SQLiteFile {
         }
     }
 
-    pub fn path<'a>(&'a self) -> &'a Path {
+    pub fn path(&self) -> &Path {
         &self.path
     }
 
