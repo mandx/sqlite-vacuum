@@ -91,13 +91,15 @@ impl SQLiteFile {
 
         sqlite::open(&self.path)
             .and_then(|connection| connection.execute("VACUUM;").and_then(|_| Ok(connection)))
-            .or_else(|error| Err(io::Error::new(io::ErrorKind::Other, Box::new(error))))
-            .and_then(|connection| {
-                connection
-                    .execute("REINDEX;")
-                    .or_else(|error| Err(io::Error::new(io::ErrorKind::Other, Box::new(error))))
+            .and_then(|connection| connection.execute("REINDEX;"))
+            .or_else(|error| {
+                Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    error
+                        .message
+                        .unwrap_or_else(|| String::from("Unknown error")),
+                ))
             })
-            .or_else(|error| Err(io::Error::new(io::ErrorKind::Other, Box::new(error))))
             .and_then(|_| {
                 Ok(VacuumResult {
                     db_file: &self,
@@ -105,7 +107,6 @@ impl SQLiteFile {
                     size_after: metadata(&self.path)?.len(),
                 })
             })
-            .or_else(|error| Err(io::Error::new(io::ErrorKind::Other, Box::new(error))))
     }
 }
 
