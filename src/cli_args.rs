@@ -40,8 +40,19 @@ impl Arguments {
         let cwd = match matches.value_of("directory") {
             Some(arg_value) => {
                 let path = PathBuf::from(&arg_value);
-                let metadata =
-                    metadata(&path).expect(&format!("`{}` is not a valid path", arg_value));
+
+                let metadata = match metadata(&path) {
+                    Ok(metadata) => metadata,
+                    Err(error) => {
+                        return Err(clap::Error::with_description(
+                            &format!(
+                                "`{}` is not a valid or accessible path: {:?}",
+                                arg_value, error
+                            ),
+                            clap::ErrorKind::InvalidValue,
+                        ));
+                    }
+                };
 
                 if !metadata.is_dir() {
                     return Err(clap::Error::with_description(
@@ -52,7 +63,15 @@ impl Arguments {
 
                 path
             }
-            None => current_dir().expect("Can not access current working dir"),
+            None => match current_dir() {
+                Ok(path) => path,
+                Err(error) => {
+                    return Err(clap::Error::with_description(
+                        &format!("Can not access current working dir: {:?}", error),
+                        clap::ErrorKind::InvalidValue,
+                    ));
+                }
+            },
         };
 
         let aggresive = matches.is_present("aggresive");
