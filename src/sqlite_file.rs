@@ -5,10 +5,8 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 lazy_static! {
-    static ref SQLITE_MAGIC: Vec<u8> = vec![
-        0x53, 0x51, 0x4c, 0x69, 0x74, 0x65, 0x20, 0x66, 0x6f, 0x72, 0x6d, 0x61, 0x74, 0x20, 0x33,
-        0x00,
-    ];
+    static ref SQLITE_MAGIC: Vec<u8> =
+        b"\x53\x51\x4c\x69\x74\x65\x20\x66\x6f\x72\x6d\x61\x74\x20\x33\x00".to_vec();
 }
 
 #[derive(Debug)]
