@@ -1,5 +1,6 @@
 extern crate clap;
 extern crate colored;
+#[macro_use]
 extern crate crossbeam_channel;
 #[macro_use]
 extern crate lazy_static;
@@ -11,7 +12,6 @@ mod sqlite_file;
 
 use std::iter::Iterator;
 use std::path::PathBuf;
-use std::sync::{atomic, Arc};
 use std::thread;
 
 use byte_format::format_size;
@@ -23,33 +23,38 @@ use walkdir::WalkDir;
 mod cli_args;
 
 fn start_threads(
-    db_file_receiver: &channel::Receiver<SQLiteFile>,
-    total_delta: &Arc<atomic::AtomicUsize>,
+    db_file_receiver: channel::Receiver<SQLiteFile>,
+    status_sender: channel::Sender<String>,
+    error_sender: channel::Sender<String>,
+    delta_sender: channel::Sender<u64>,
 ) -> Vec<thread::JoinHandle<()>> {
     let cpu_count = num_cpus::get();
-    let mut handles: Vec<thread::JoinHandle<()>> = Vec::with_capacity(cpu_count);
+    let mut handles: Vec<thread::JoinHandle<_>> = Vec::with_capacity(cpu_count);
 
     for _ in 0..cpu_count {
-        let receiver = db_file_receiver.clone();
-        let total_delta = total_delta.clone();
+        let db_files = db_file_receiver.clone();
+        let status = status_sender.clone();
+        let error = error_sender.clone();
+        let delta = delta_sender.clone();
 
         handles.push(thread::spawn(move || {
-            for db_file in receiver {
-                let status = match db_file.vacuum() {
+            for db_file in db_files {
+                match db_file.vacuum() {
                     Ok(result) => {
-                        let delta = result.delta();
-                        total_delta.fetch_add(delta as usize, atomic::Ordering::SeqCst);
-                        format_size(delta as f64).yellow()
-                    }
-                    Err(error) => format!("{:?}", error).red(),
-                };
+                        let size_delta = result.delta();
 
-                println!(
-                    "{} {} {}",
-                    "Found".bold().green(),
-                    db_file.path().to_str().unwrap_or("?").white(),
-                    status.bold(),
-                );
+                        delta.send(size_delta);
+                        status.send(format!(
+                            "{} {} {}",
+                            "Found".bold().green(),
+                            db_file.path().to_str().unwrap_or("?").white(),
+                            format_size(size_delta as f64).yellow().bold(),
+                        ));
+                    }
+                    Err(err) => {
+                        error.send(format!("{:?}", err).red().to_string());
+                    }
+                };
             }
         }));
     }
@@ -84,15 +89,63 @@ fn main() {
         });
 
     let (file_sender, file_receiver): ChannelAPI<SQLiteFile> = channel::unbounded();
-    let total_delta = Arc::new(atomic::AtomicUsize::new(0));
+    let (status_sender, status_receiver): ChannelAPI<String> = channel::unbounded();
+    let (error_sender, error_receiver): ChannelAPI<String> = channel::unbounded();
+    let (delta_sender, delta_receiver): ChannelAPI<u64> = channel::unbounded();
 
-    let thread_handles = start_threads(&file_receiver, &total_delta);
+    let thread_handles = start_threads(file_receiver, status_sender, error_sender, delta_sender);
 
     for mut db_file in items {
         file_sender.send(db_file);
     }
     // Dropping all channel's senders marks it as closed
     drop(file_sender);
+    let mut total_delta: u64 = 0;
+
+    loop {
+        // select! {
+        //     recv(delta_receiver, msg) => {
+        //         if let Some(delta) = msg {
+        //             total_delta += delta;
+        //         }
+        //     },
+        //     recv(status_receiver, msg) => {
+        //         if let Some(status) = msg {
+        //             println!("{}", status);
+        //         }
+        //     },
+        //     recv(error_receiver, msg) => {
+        //         if let Some(error) = msg {
+        //             eprintln!("{}", error);
+        //         }
+        //      },
+
+        //     default => { break; },
+        // }
+
+        let delta_msg = delta_receiver.recv();
+        let status_msg = status_receiver.recv();
+        let error_msg = error_receiver.recv();
+
+        match (&delta_msg, &status_msg, &error_msg) {
+            (None, None, None) => {
+                break;
+            },
+            _ => {
+                if let Some(delta) = delta_msg {
+                    total_delta += delta;
+                }
+
+                if let Some(status) = status_msg {
+                    println!("{}", status);
+                }
+
+                if let Some(error) = error_msg {
+                    eprintln!("{}", error);
+                }
+            }
+        }
+    }
 
     for handle in thread_handles {
         if let Err(error) = handle.join() {
@@ -104,8 +157,6 @@ fn main() {
         "{} {} {}",
         "Done.".bold().bright_green(),
         "Total size reduction:".bright_white(),
-        format_size(total_delta.load(atomic::Ordering::SeqCst) as f64)
-            .bold()
-            .bright_yellow(),
+        format_size(total_delta as f64).bold().bright_yellow(),
     );
 }
