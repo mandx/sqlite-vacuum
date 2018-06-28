@@ -1,5 +1,6 @@
+extern crate atty;
 extern crate clap;
-extern crate colored;
+extern crate console;
 extern crate crossbeam_channel;
 #[macro_use]
 extern crate lazy_static;
@@ -14,16 +15,17 @@ use std::path::PathBuf;
 use std::thread;
 
 use byte_format::format_size;
-use colored::*;
+use console::style;
 use crossbeam_channel as channel;
 use sqlite_file::{LoadResult, SQLiteFile};
 use walkdir::WalkDir;
 
 mod cli_args;
+mod display;
 
 #[derive(Debug)]
 enum Status {
-    Success(String),
+    Progress(String),
     Error(String),
     Delta(u64),
 }
@@ -46,15 +48,15 @@ fn start_threads(
                         let delta = result.delta();
 
                         status.send(Status::Delta(delta));
-                        status.send(Status::Success(format!(
+                        status.send(Status::Progress(format!(
                             "{} {} {}",
-                            "Found".bold().green(),
-                            db_file.path().to_str().unwrap_or("?").white(),
-                            format_size(delta as f64).yellow().bold(),
+                            style("Found").bold().green(),
+                            style(db_file.path().to_str().unwrap_or("?")).white(),
+                            style(format_size(delta as f64)).yellow().bold(),
                         )));
                     }
                     Err(err) => {
-                        status.send(Status::Error(format!("{:?}", err).red().to_string()));
+                        status.send(Status::Error(style(format!("{:?}", err)).red().to_string()));
                     }
                 };
             }
@@ -75,6 +77,8 @@ fn main() {
         }
     };
 
+    let display = display::Display::new();
+
     let items = WalkDir::new(&args.directory)
         .into_iter()
         .filter_map(|item| match item {
@@ -84,7 +88,8 @@ fn main() {
         .filter_map(|path| match SQLiteFile::load(&path, args.aggresive) {
             LoadResult::Ok(db_file) => Some(db_file),
             LoadResult::Err(error) => {
-                eprintln!("Error reading from `{:?}`: {:?}", &path, error);
+                let msg = format!("Error reading from `{:?}`: {:?}", &path, error);
+                display.error(&style(msg).red().to_string());
                 None
             }
             LoadResult::None => None,
@@ -100,32 +105,27 @@ fn main() {
     }
     // Dropping all channel's senders marks it as closed
     drop(file_sender);
+
     let mut total_delta: u64 = 0;
 
     for status in status_receiver {
         match status {
-            Status::Success(msg) => {
-                println!("{}", msg);
-            }
-            Status::Error(msg) => {
-                eprintln!("{}", msg);
-            }
-            Status::Delta(delta) => {
-                total_delta += delta;
-            }
+            Status::Progress(msg) => display.progress(&msg),
+            Status::Error(msg) => display.error(&msg),
+            Status::Delta(delta) => total_delta += delta,
         }
     }
 
     for handle in thread_handles {
         if let Err(error) = handle.join() {
-            eprintln!("Thread error: {:?}", error);
+            display.error(&style(format!("Thread error: {:?}", error)).red().to_string());
         }
     }
 
-    println!(
+    display.write_line(&format!(
         "{} {} {}",
-        "Done.".bold().bright_green(),
-        "Total size reduction:".bright_white(),
-        format_size(total_delta as f64).bold().bright_yellow(),
-    );
+        style("Done.").bold().green(),
+        style("Total size reduction:").white(),
+        style(format_size(total_delta as f64)).bold().yellow(),
+    ));
 }
