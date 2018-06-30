@@ -15,5 +15,5 @@ walkdir = "2.1.4"
 
 [profile.release]
 lto = false
-debug-assertions = true
+debug-assertions = false
 codegen-units = 1

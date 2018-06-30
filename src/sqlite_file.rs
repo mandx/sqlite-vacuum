@@ -1,7 +1,7 @@
 extern crate sqlite;
 
 use std::fs::{metadata, File};
-use std::io::{self, Read};
+use std::io::{self, BufReader, Read};
 use std::path::{Path, PathBuf};
 
 lazy_static! {
@@ -56,15 +56,18 @@ impl SQLiteFile {
             match File::open(path) {
                 Ok(file) => {
                     let mut buffer: Vec<u8> = Vec::with_capacity(SQLITE_MAGIC.len());
+                    let reader = BufReader::new(file);
+
                     // We loop over the `take` iterator instead of `collect`ing
                     // directly into the buffer vector because every byte read
                     // comes as a `Result`, and any error in any read means we
                     // end with an error.
-                    for byte in file.bytes().take(SQLITE_MAGIC.len()) {
-                        if let Err(error) = byte {
-                            return LoadResult::Err(error);
+
+                    for byte in reader.bytes().take(SQLITE_MAGIC.len()) {
+                        match byte {
+                            Ok(byte) => buffer.push(byte),
+                            Err(error) => return LoadResult::Err(error),
                         }
-                        buffer.push(byte.unwrap())
                     }
 
                     if buffer != *SQLITE_MAGIC {

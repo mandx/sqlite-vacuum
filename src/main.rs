@@ -118,7 +118,9 @@ fn main() {
 
     for handle in thread_handles {
         if let Err(error) = handle.join() {
-            display.error(&style(format!("Thread error: {:?}", error)).red().to_string());
+            display.error(&style(format!("Thread error: {:?}", error))
+                .red()
+                .to_string());
         }
     }
 
