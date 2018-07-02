@@ -1,7 +1,12 @@
+// `error_chain!` can recurse deeply
+#![recursion_limit = "1024"]
+
 extern crate atty;
 extern crate clap;
 extern crate console;
 extern crate crossbeam_channel;
+#[macro_use]
+extern crate error_chain;
 #[macro_use]
 extern crate lazy_static;
 extern crate num_cpus;
@@ -17,11 +22,12 @@ use std::thread;
 use byte_format::format_size;
 use console::style;
 use crossbeam_channel as channel;
-use sqlite_file::{LoadResult, SQLiteFile};
+use sqlite_file::SQLiteFile;
 use walkdir::WalkDir;
 
 mod cli_args;
 mod display;
+mod errors;
 
 #[derive(Debug)]
 enum Status {
@@ -55,8 +61,8 @@ fn start_threads(
                             style(format_size(delta as f64)).yellow().bold(),
                         )));
                     }
-                    Err(err) => {
-                        status.send(Status::Error(style(format!("{:?}", err)).red().to_string()));
+                    Err(error) => {
+                        status.send(Status::Error(style(format!("{}", error)).red().to_string()));
                     }
                 };
             }
@@ -73,7 +79,8 @@ fn main() {
     let args = match cli_args::Arguments::get() {
         Ok(args) => args,
         Err(error) => {
-            error.exit();
+            eprintln!("{}", error);
+            std::process::exit(1);
         }
     };
 
@@ -86,13 +93,13 @@ fn main() {
             Err(_) => None,
         })
         .filter_map(|path| match SQLiteFile::load(&path, args.aggresive) {
-            LoadResult::Ok(db_file) => Some(db_file),
-            LoadResult::Err(error) => {
+            Some(Ok(db_file)) => Some(db_file),
+            Some(Err(error)) => {
                 let msg = format!("Error reading from `{:?}`: {:?}", &path, error);
                 display.error(&style(msg).red().to_string());
                 None
             }
-            LoadResult::None => None,
+            None => None,
         });
 
     let (file_sender, file_receiver): ChannelAPI<SQLiteFile> = channel::unbounded();

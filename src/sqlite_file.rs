@@ -1,8 +1,10 @@
 extern crate sqlite;
 
 use std::fs::{metadata, File};
-use std::io::{self, BufReader, Read};
+use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
+
+use errors::*;
 
 lazy_static! {
     static ref SQLITE_MAGIC: Vec<u8> =
@@ -23,13 +25,6 @@ impl<'a> VacuumResult<'a> {
 }
 
 #[derive(Debug)]
-pub enum LoadResult<T> {
-    Ok(T),
-    Err(io::Error),
-    None,
-}
-
-#[derive(Debug)]
 pub struct SQLiteFile {
     path: PathBuf,
 }
@@ -45,15 +40,19 @@ impl SQLiteFile {
         &self.path
     }
 
-    pub fn load(path: &Path, aggresive: bool) -> LoadResult<Self> {
-        if let Ok(metadata) = metadata(path) {
-            if !metadata.is_file() {
-                return LoadResult::None;
+    pub fn load(path: &Path, aggresive: bool) -> Option<Result<Self>> {
+        match metadata(path).chain_err(|| ErrorKind::FileAccessError(path.into())) {
+            Ok(metadata) => {
+                if !metadata.is_file() {
+                    return None;
+                }
             }
+            Err(error) => return Some(Err(error)),
         }
 
         if aggresive {
-            match File::open(path) {
+            match File::open(path).chain_err(|| ErrorKind::DatabaseLoadError(path.into())) {
+                Err(error) => Some(Err(error)),
                 Ok(file) => {
                     let mut buffer: Vec<u8> = Vec::with_capacity(SQLITE_MAGIC.len());
                     let reader = BufReader::new(file);
@@ -64,48 +63,55 @@ impl SQLiteFile {
                     // end with an error.
 
                     for byte in reader.bytes().take(SQLITE_MAGIC.len()) {
-                        match byte {
+                        match byte.chain_err(|| ErrorKind::DatabaseLoadError(path.into())) {
                             Ok(byte) => buffer.push(byte),
-                            Err(error) => return LoadResult::Err(error),
+                            Err(error) => {
+                                return Some(Err(error));
+                            }
                         }
                     }
 
                     if buffer != *SQLITE_MAGIC {
-                        return LoadResult::None;
+                        return None;
                     }
 
-                    LoadResult::Ok(Self::new(path))
+                    Some(Ok(Self::new(path)))
                 }
-                Err(error) => LoadResult::Err(error),
             }
         } else {
             match path.extension().and_then(|ext| ext.to_str()) {
-                Some("db") => LoadResult::Ok(Self::new(path)),
-                Some("sqlite") => LoadResult::Ok(Self::new(path)),
-                _ => LoadResult::None,
+                Some("db") | Some("sqlite") => Some(Ok(Self::new(path))),
+                _ => None,
             }
         }
     }
 
-    pub fn vacuum<'a>(&'a self) -> io::Result<VacuumResult<'a>> {
-        let size_before = metadata(&self.path)?.len();
+    pub fn vacuum<'a>(&'a self) -> Result<VacuumResult<'a>> {
+        let size_before = match metadata(&self.path)
+            .chain_err(|| ErrorKind::FileAccessError(self.path.clone()))
+        {
+            Ok(metadata) => metadata.len(),
+            Err(error) => {
+                return Err(error);
+            }
+        };
 
         sqlite::open(&self.path)
             .and_then(|connection| connection.execute("VACUUM;").and_then(|_| Ok(connection)))
             .and_then(|connection| connection.execute("REINDEX;"))
-            .or_else(|error| {
-                Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    error
-                        .message
-                        .unwrap_or_else(|| String::from("Unknown error")),
-                ))
-            })
+            .chain_err(|| ErrorKind::VacuumError(self.path.clone()))
             .and_then(|_| {
                 Ok(VacuumResult {
                     db_file: &self,
                     size_before,
-                    size_after: metadata(&self.path)?.len(),
+                    size_after: match metadata(&self.path)
+                        .chain_err(|| ErrorKind::FileAccessError(self.path.clone()))
+                    {
+                        Ok(metadata) => metadata.len(),
+                        Err(error) => {
+                            return Err(error);
+                        }
+                    },
                 })
             })
     }

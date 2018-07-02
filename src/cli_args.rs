@@ -6,6 +6,8 @@ use std::path::PathBuf;
 
 use clap::{App, Arg};
 
+use super::errors::*;
+
 #[derive(Debug)]
 pub struct Arguments {
     pub directory: PathBuf,
@@ -13,7 +15,7 @@ pub struct Arguments {
 }
 
 impl Arguments {
-    pub fn get() -> Result<Self, clap::Error> {
+    pub fn get() -> Result<Self> {
         let app = App::new("sqlite-vacuum")
             .arg(
                 Arg::with_name("directory")
@@ -30,48 +32,32 @@ impl Arguments {
                     .required(false)
             );
 
-        let matches = match app.get_matches_safe() {
-            Ok(matches) => matches,
-            Err(error) => {
-                return Err(error);
-            }
-        };
+        let matches = app.get_matches_safe()
+            .chain_err(|| ErrorKind::ArgumentsError(String::from("Invalid arguments")))?;
 
         let cwd = match matches.value_of("directory") {
             Some(arg_value) => {
                 let path = PathBuf::from(&arg_value);
 
-                let metadata = match metadata(&path) {
-                    Ok(metadata) => metadata,
-                    Err(error) => {
-                        return Err(clap::Error::with_description(
-                            &format!(
-                                "`{}` is not a valid or accessible path: {:?}",
-                                arg_value, error
-                            ),
-                            clap::ErrorKind::InvalidValue,
-                        ));
-                    }
-                };
+                let path_meta = metadata(&path).chain_err(|| {
+                    ErrorKind::ArgumentsError(format!(
+                        "`{}` is not a valid or accessible path",
+                        arg_value
+                    ))
+                })?;
 
-                if !metadata.is_dir() {
-                    return Err(clap::Error::with_description(
-                        &format!("`{}` is not a directory", arg_value),
-                        clap::ErrorKind::InvalidValue,
-                    ));
+                if !path_meta.is_dir() {
+                    return Err(Error::from_kind(ErrorKind::ArgumentsError(format!(
+                        "`{}` is not a directory",
+                        arg_value
+                    ))));
                 }
 
                 path
             }
-            None => match current_dir() {
-                Ok(path) => path,
-                Err(error) => {
-                    return Err(clap::Error::with_description(
-                        &format!("Can not access current working dir: {:?}", error),
-                        clap::ErrorKind::InvalidValue,
-                    ));
-                }
-            },
+            None => current_dir().chain_err(|| {
+                ErrorKind::ArgumentsError(String::from("Can not access current working dir"))
+            })?,
         };
 
         let aggresive = matches.is_present("aggresive");
