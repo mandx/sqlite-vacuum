@@ -5,6 +5,7 @@ use std::fs::metadata;
 use std::path::PathBuf;
 
 use clap::{App, Arg};
+use failure::{Error, ResultExt};
 
 #[derive(Debug)]
 pub struct Arguments {
@@ -13,7 +14,7 @@ pub struct Arguments {
 }
 
 impl Arguments {
-    pub fn get() -> Result<Self, clap::Error> {
+    pub fn get() -> Result<Self, Error> {
         let app = App::new("sqlite-vacuum")
             .arg(
                 Arg::with_name("directory")
@@ -30,48 +31,20 @@ impl Arguments {
                     .required(false)
             );
 
-        let matches = match app.get_matches_safe() {
-            Ok(matches) => matches,
-            Err(error) => {
-                return Err(error);
-            }
-        };
+        let matches = app.get_matches_safe()?;
 
         let cwd = match matches.value_of("directory") {
             Some(arg_value) => {
                 let path = PathBuf::from(&arg_value);
-
-                let metadata = match metadata(&path) {
-                    Ok(metadata) => metadata,
-                    Err(error) => {
-                        return Err(clap::Error::with_description(
-                            &format!(
-                                "`{}` is not a valid or accessible path: {:?}",
-                                arg_value, error
-                            ),
-                            clap::ErrorKind::InvalidValue,
-                        ));
-                    }
-                };
+                let metadata = metadata(&path).context("Path is not valid or accessible")?;
 
                 if !metadata.is_dir() {
-                    return Err(clap::Error::with_description(
-                        &format!("`{}` is not a directory", arg_value),
-                        clap::ErrorKind::InvalidValue,
-                    ));
+                    bail!("`{}` is not a directory", arg_value);
                 }
 
                 path
             }
-            None => match current_dir() {
-                Ok(path) => path,
-                Err(error) => {
-                    return Err(clap::Error::with_description(
-                        &format!("Can not access current working dir: {:?}", error),
-                        clap::ErrorKind::InvalidValue,
-                    ));
-                }
-            },
+            None => current_dir().context("Can not access current working dir")?,
         };
 
         let aggresive = matches.is_present("aggresive");

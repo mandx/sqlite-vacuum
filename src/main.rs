@@ -3,6 +3,8 @@ extern crate clap;
 extern crate console;
 extern crate crossbeam_channel;
 #[macro_use]
+extern crate failure;
+#[macro_use]
 extern crate lazy_static;
 extern crate num_cpus;
 extern crate walkdir;
@@ -17,11 +19,14 @@ use std::thread;
 use byte_format::format_size;
 use console::style;
 use crossbeam_channel as channel;
-use sqlite_file::{LoadResult, SQLiteFile};
+use sqlite_file::{SQLiteFile};
 use walkdir::WalkDir;
 
 mod cli_args;
 mod display;
+mod errors;
+
+// use errors::*;
 
 #[derive(Debug)]
 enum Status {
@@ -72,9 +77,13 @@ type ChannelAPI<T> = (channel::Sender<T>, channel::Receiver<T>);
 fn main() {
     let args = match cli_args::Arguments::get() {
         Ok(args) => args,
-        Err(error) => {
-            error.exit();
-        }
+        Err(error) => match error.downcast::<clap::Error>() {
+            Ok(clap_error) => clap_error.exit(),
+            Err(other_error) => {
+                eprintln!("Error parsing arguments: {:?}", other_error);
+                std::process::exit(1);
+            }
+        },
     };
 
     let display = display::Display::new();
@@ -86,13 +95,13 @@ fn main() {
             Err(_) => None,
         })
         .filter_map(|path| match SQLiteFile::load(&path, args.aggresive) {
-            LoadResult::Ok(db_file) => Some(db_file),
-            LoadResult::Err(error) => {
+            Some(Ok(db_file)) => Some(db_file),
+            Some(Err(error)) => {
                 let msg = format!("Error reading from `{:?}`: {:?}", &path, error);
                 display.error(&style(msg).red().to_string());
                 None
             }
-            LoadResult::None => None,
+            None => None,
         });
 
     let (file_sender, file_receiver): ChannelAPI<SQLiteFile> = channel::unbounded();

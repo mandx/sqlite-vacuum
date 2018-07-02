@@ -1,8 +1,9 @@
 extern crate sqlite;
 
 use std::fs::{metadata, File};
-use std::io::{self, BufReader, Read};
+use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
+use failure::{Error, ResultExt};
 
 lazy_static! {
     static ref SQLITE_MAGIC: Vec<u8> =
@@ -23,13 +24,6 @@ impl<'a> VacuumResult<'a> {
 }
 
 #[derive(Debug)]
-pub enum LoadResult<T> {
-    Ok(T),
-    Err(io::Error),
-    None,
-}
-
-#[derive(Debug)]
 pub struct SQLiteFile {
     path: PathBuf,
 }
@@ -45,15 +39,15 @@ impl SQLiteFile {
         &self.path
     }
 
-    pub fn load(path: &Path, aggresive: bool) -> LoadResult<Self> {
+    pub fn load(path: &Path, aggresive: bool) -> Option<Result<Self, Error>> {
         if let Ok(metadata) = metadata(path) {
             if !metadata.is_file() {
-                return LoadResult::None;
+                return None;
             }
         }
 
         if aggresive {
-            match File::open(path) {
+            match File::open(path).context(format!("Error checking {:?}", path)) {
                 Ok(file) => {
                     let mut buffer: Vec<u8> = Vec::with_capacity(SQLITE_MAGIC.len());
                     let reader = BufReader::new(file);
@@ -66,41 +60,35 @@ impl SQLiteFile {
                     for byte in reader.bytes().take(SQLITE_MAGIC.len()) {
                         match byte {
                             Ok(byte) => buffer.push(byte),
-                            Err(error) => return LoadResult::Err(error),
+                            Err(error) => return Some(Err(error.into())),
                         }
                     }
 
                     if buffer != *SQLITE_MAGIC {
-                        return LoadResult::None;
+                        return None;
                     }
 
-                    LoadResult::Ok(Self::new(path))
+                    Some(Ok(Self::new(path)))
                 }
-                Err(error) => LoadResult::Err(error),
+                Err(error) => Some(Err(error.into())),
             }
         } else {
             match path.extension().and_then(|ext| ext.to_str()) {
-                Some("db") => LoadResult::Ok(Self::new(path)),
-                Some("sqlite") => LoadResult::Ok(Self::new(path)),
-                _ => LoadResult::None,
+                Some("db") => Some(Ok(Self::new(path))),
+                Some("sqlite") => Some(Ok(Self::new(path))),
+                _ => None,
             }
         }
     }
 
-    pub fn vacuum<'a>(&'a self) -> io::Result<VacuumResult<'a>> {
+    pub fn vacuum<'a>(&'a self) -> Result<VacuumResult<'a>, Error> {
         let size_before = metadata(&self.path)?.len();
 
         sqlite::open(&self.path)
             .and_then(|connection| connection.execute("VACUUM;").and_then(|_| Ok(connection)))
             .and_then(|connection| connection.execute("REINDEX;"))
-            .or_else(|error| {
-                Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    error
-                        .message
-                        .unwrap_or_else(|| String::from("Unknown error")),
-                ))
-            })
+            .context(format!("Error vacuuming {:?}", self.path))
+            .or_else(|error| { Err(error.into()) })
             .and_then(|_| {
                 Ok(VacuumResult {
                     db_file: &self,
