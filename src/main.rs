@@ -19,14 +19,12 @@ use std::thread;
 use byte_format::format_size;
 use console::style;
 use crossbeam_channel as channel;
-use sqlite_file::{SQLiteFile};
+use failure::Error;
+use sqlite_file::SQLiteFile;
 use walkdir::WalkDir;
 
 mod cli_args;
 mod display;
-mod errors;
-
-// use errors::*;
 
 #[derive(Debug)]
 enum Status {
@@ -35,9 +33,11 @@ enum Status {
     Delta(u64),
 }
 
+// We do want this function to consume/own its parameters
+#[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
 fn start_threads(
-    db_file_receiver: &channel::Receiver<SQLiteFile>,
-    status_sender: &channel::Sender<Status>,
+    db_file_receiver: channel::Receiver<SQLiteFile>,
+    status_sender: channel::Sender<Status>,
 ) -> Vec<thread::JoinHandle<()>> {
     let cpu_count = num_cpus::get();
     let mut handles: Vec<thread::JoinHandle<_>> = Vec::with_capacity(cpu_count);
@@ -76,7 +76,7 @@ type ChannelAPI<T> = (channel::Sender<T>, channel::Receiver<T>);
 
 fn main() {
     let args = match cli_args::Arguments::get() {
-        Ok(args) => args,
+        Ok(arguments) => arguments,
         Err(error) => match error.downcast::<clap::Error>() {
             Ok(clap_error) => clap_error.exit(),
             Err(other_error) => {
@@ -88,7 +88,12 @@ fn main() {
 
     let display = display::Display::new();
 
-    let items = WalkDir::new(&args.directory)
+    let (file_sender, file_receiver): ChannelAPI<SQLiteFile> = channel::unbounded();
+    let (status_sender, status_receiver): ChannelAPI<Status> = channel::unbounded();
+
+    let thread_handles = start_threads(file_receiver, status_sender);
+
+    WalkDir::new(&args.directory)
         .into_iter()
         .filter_map(|item| match item {
             Ok(entry) => Some(PathBuf::from(entry.path())),
@@ -102,25 +107,8 @@ fn main() {
                 None
             }
             None => None,
-        });
-
-    let (file_sender, file_receiver): ChannelAPI<SQLiteFile> = channel::unbounded();
-    let (status_sender, status_receiver): ChannelAPI<Status> = channel::unbounded();
-
-    let thread_handles = start_threads(&file_receiver, &status_sender);
-
-    for mut db_file in items {
-        file_sender.send(db_file);
-    }
-
-    // Manually drop the senders, so their respective channels are
-    // set as closed. Otherwise all receivers will block.
-    drop(status_sender);
-    drop(file_sender);
-    // We could have the `start_threads` function consume its parameters
-    // (move the values, instead of taking borrowing references), but
-    // then Clippy complains about unnecessary allocations something something...
-    // See https://rust-lang-nursery.github.io/rust-clippy/v0.0.211/index.html#needless_pass_by_value
+        })
+        .for_each(move |db_file| file_sender.send(db_file));
 
     let mut total_delta: u64 = 0;
 

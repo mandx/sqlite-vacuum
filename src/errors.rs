@@ -57,6 +57,6 @@ impl From<AppErrorKind> for AppError {
 
 impl From<Context<AppErrorKind>> for AppError {
     fn from(inner: Context<AppErrorKind>) -> AppError {
-        AppError { inner: inner }
+        AppError { inner }
     }
 }

@@ -3,6 +3,7 @@ extern crate sqlite;
 use std::fs::{metadata, File};
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
+
 use failure::{Error, ResultExt};
 
 lazy_static! {
@@ -74,21 +75,20 @@ impl SQLiteFile {
             }
         } else {
             match path.extension().and_then(|ext| ext.to_str()) {
-                Some("db") => Some(Ok(Self::new(path))),
-                Some("sqlite") => Some(Ok(Self::new(path))),
+                Some("db") | Some("sqlite") => Some(Ok(Self::new(path))),
                 _ => None,
             }
         }
     }
 
-    pub fn vacuum<'a>(&'a self) -> Result<VacuumResult<'a>, Error> {
+    pub fn vacuum(&self) -> Result<VacuumResult, Error> {
         let size_before = metadata(&self.path)?.len();
 
         sqlite::open(&self.path)
             .and_then(|connection| connection.execute("VACUUM;").and_then(|_| Ok(connection)))
             .and_then(|connection| connection.execute("REINDEX;"))
             .context(format!("Error vacuuming {:?}", self.path))
-            .or_else(|error| { Err(error.into()) })
+            .or_else(|error| Err(error.into()))
             .and_then(|_| {
                 Ok(VacuumResult {
                     db_file: &self,
