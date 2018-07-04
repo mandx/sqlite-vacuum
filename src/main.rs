@@ -91,7 +91,7 @@ fn main() {
     let (file_sender, file_receiver): ChannelAPI<SQLiteFile> = channel::unbounded();
     let (status_sender, status_receiver): ChannelAPI<Status> = channel::unbounded();
 
-    let thread_handles = start_threads(file_receiver, status_sender);
+    let thread_handles = start_threads(file_receiver, status_sender.clone());
 
     WalkDir::new(&args.directory)
         .into_iter()
@@ -99,11 +99,14 @@ fn main() {
             Ok(entry) => Some(PathBuf::from(entry.path())),
             Err(_) => None,
         })
-        .filter_map(|path| match SQLiteFile::load(&path, args.aggresive) {
+        .filter_map(move |path| match SQLiteFile::load(&path, args.aggresive) {
             Some(Ok(db_file)) => Some(db_file),
             Some(Err(error)) => {
-                let msg = format!("Error reading from `{:?}`: {:?}", &path, error);
-                display.error(&style(msg).red().to_string());
+                status_sender.send(Status::Error(
+                    style(format!("Error reading from `{:?}`: {:?}", &path, error))
+                        .red()
+                        .to_string(),
+                ));
                 None
             }
             None => None,
