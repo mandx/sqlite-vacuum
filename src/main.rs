@@ -19,6 +19,7 @@ use std::thread;
 use byte_format::format_size;
 use console::style;
 use crossbeam_channel as channel;
+use failure::Error;
 use sqlite_file::SQLiteFile;
 use walkdir::WalkDir;
 
