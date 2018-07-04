@@ -15,27 +15,29 @@ impl Display {
     }
 
     pub fn progress(&self, msg: &str) {
-        if self.istty {
-            self.term.clear_line().unwrap();
-            self.term.write_str(msg).unwrap();
-        } else {
+        if !self.istty
+            || self.term
+                .clear_line()
+                .and_then(|_| self.term.write_str(msg))
+                .is_err()
+        {
             println!("{}", msg);
         }
     }
 
     pub fn error(&self, msg: &str) {
-        if self.istty {
-            self.term.write_line(msg).unwrap();
-        } else {
+        if !self.istty || self.term.write_line(msg).is_err() {
             eprintln!("{}", msg);
         }
     }
 
     pub fn write_line(&self, msg: &str) {
-        if self.istty {
-            self.term.clear_line().unwrap();
-            self.term.write_line(msg).unwrap();
-        } else {
+        if !self.istty
+            || self.term
+                .clear_line()
+                .and_then(|_| self.term.write_line(msg))
+                .is_err()
+        {
             println!("{}", msg);
         }
     }
