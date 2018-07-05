@@ -2,6 +2,7 @@ extern crate sqlite;
 
 use std::fs::{metadata, File};
 use std::io::{BufReader, Read};
+use std::iter::Iterator;
 use std::path::{Path, PathBuf};
 
 use failure::{Error, ResultExt};
@@ -40,43 +41,34 @@ impl SQLiteFile {
         &self.path
     }
 
-    pub fn load(path: &Path, aggresive: bool) -> Option<Result<Self, Error>> {
-        if let Ok(metadata) = metadata(path) {
-            if !metadata.is_file() {
-                return None;
-            }
+    pub fn load(path: &Path, aggresive: bool) -> Result<Option<Self>, Error> {
+        if !metadata(path)?.is_file() {
+            return Ok(None);
         }
 
         if aggresive {
-            match File::open(path).context(format!("Error checking {:?}", path)) {
-                Ok(file) => {
-                    let mut buffer: Vec<u8> = Vec::with_capacity(SQLITE_MAGIC.len());
-                    let reader = BufReader::new(file);
+            let file = File::open(path).context(format!("Error checking {:?}", path))?;
+            let mut buffer: Vec<u8> = Vec::with_capacity(SQLITE_MAGIC.len());
+            let reader = BufReader::new(file);
 
-                    // We loop over the `take` iterator instead of `collect`ing
-                    // directly into the buffer vector because every byte read
-                    // comes as a `Result`, and any error in any read means we
-                    // end with an error.
+            // We loop over the `take` iterator instead of `collect`ing
+            // directly into the buffer vector because every byte read
+            // comes as a `Result`, and any error in any read means we
+            // end with an error.
 
-                    for byte in reader.bytes().take(SQLITE_MAGIC.len()) {
-                        match byte {
-                            Ok(byte) => buffer.push(byte),
-                            Err(error) => return Some(Err(error.into())),
-                        }
-                    }
-
-                    if buffer != *SQLITE_MAGIC {
-                        return None;
-                    }
-
-                    Some(Ok(Self::new(path)))
-                }
-                Err(error) => Some(Err(error.into())),
+            for byte in reader.bytes().take(SQLITE_MAGIC.len()) {
+                buffer.push(byte?);
             }
+
+            if buffer != *SQLITE_MAGIC {
+                return Ok(None);
+            }
+
+            Ok(Some(Self::new(path)))
         } else {
             match path.extension().and_then(|ext| ext.to_str()) {
-                Some("db") | Some("sqlite") => Some(Ok(Self::new(path))),
-                _ => None,
+                Some("db") | Some("sqlite") => Ok(Some(Self::new(path))),
+                _ => Ok(None),
             }
         }
     }

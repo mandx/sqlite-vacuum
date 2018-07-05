@@ -19,7 +19,6 @@ use std::thread;
 use byte_format::format_size;
 use console::style;
 use crossbeam_channel as channel;
-use failure::Error;
 use sqlite_file::SQLiteFile;
 use walkdir::WalkDir;
 
@@ -100,8 +99,9 @@ fn main() {
             Err(_) => None,
         })
         .filter_map(move |path| match SQLiteFile::load(&path, args.aggresive) {
-            Some(Ok(db_file)) => Some(db_file),
-            Some(Err(error)) => {
+            Ok(Some(db_file)) => Some(db_file),
+            Ok(None) => None,
+            Err(error) => {
                 status_sender.send(Status::Error(
                     style(format!("Error reading from `{:?}`: {:?}", &path, error))
                         .red()
@@ -109,7 +109,6 @@ fn main() {
                 ));
                 None
             }
-            None => None,
         })
         .for_each(move |db_file| file_sender.send(db_file));
 
