@@ -19,7 +19,12 @@ variables:
 
 # Do any pre-flight requirements here, such as updating $PATH installing dependencies
 before_script:
-  - export PATH="/root/.cargo/bin:$PATH"
+  - export PATH="$HOME/.cargo/bin:$PATH"
+
+after_script:
+  # Caching this directory actually slows down build times unnecessarily
+  # See https://levans.fr/rust_travis_cache.html
+  - rm -rf $HOME/.cargo/registry
 
 # The following test: stages inherit from the test template above and
 # configure the image used for the various Rust release trains
