@@ -24,7 +24,7 @@ before_script:
 # The following test: stages inherit from the test template above and
 # configure the image used for the various Rust release trains
 test:stable:
-  image: "rust:1.27"
+  image: "rust:latest"
   <<: *cargo_test
 
 test:nightly:
@@ -35,15 +35,15 @@ test:nightly:
 # Always want to run rustfmt and clippy against our tests, to ensure that
 # we aren't using any anti-patterns or failing to follow our style guide
 lint:rustfmt:
-  image: "rust:1.27"
+  image: "rust:latest"
   allow_failure: true
   script:
     - rustup component add rustfmt-preview
-    - cargo fmt -- --write-mode=diff
+    - cargo fmt -- --check
 
 lint:clippy:
   image: "rustlang/rust:nightly"
   allow_failure: true
   script:
-    - cargo +nightly install clippy
+    - rustup component add clippy-preview
     - cargo +nightly clippy -- -D warnings # Turn all warnings into errors
