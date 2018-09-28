@@ -19,7 +19,6 @@ use std::thread;
 use byte_format::format_size;
 use console::style;
 use crossbeam_channel as channel;
-use failure::Error;
 use sqlite_file::SQLiteFile;
 use walkdir::WalkDir;
 
@@ -96,10 +95,22 @@ fn main() {
     WalkDir::new(&args.directory)
         .into_iter()
         .filter_map(|item| match item {
-            Ok(entry) => Some(PathBuf::from(entry.path())),
-            Err(_) => None,
-        })
-        .filter_map(move |path| match SQLiteFile::load(&path, args.aggresive) {
+            Ok(entry) => {
+                let path = entry.path();
+                if let Some(filename) = path.to_str() {
+                    display.progress(filename);
+                }
+                Some(PathBuf::from(path))
+            }
+            Err(error) => {
+                status_sender.send(Status::Error(
+                    style(format!("Error during directory scan: {:?}", error))
+                        .red()
+                        .to_string(),
+                ));
+                None
+            }
+        }).filter_map(|path| match SQLiteFile::load(&path, args.aggresive) {
             Ok(Some(db_file)) => Some(db_file),
             Ok(None) => None,
             Err(error) => {
@@ -110,8 +121,7 @@ fn main() {
                 ));
                 None
             }
-        })
-        .for_each(move |db_file| file_sender.send(db_file));
+        }).for_each(move |db_file| file_sender.send(db_file));
 
     let mut total_delta: u64 = 0;
 
@@ -125,9 +135,11 @@ fn main() {
 
     for handle in thread_handles {
         if let Err(error) = handle.join() {
-            display.error(&style(format!("Thread error: {:?}", error))
-                .red()
-                .to_string());
+            display.error(
+                &style(format!("Thread error: {:?}", error))
+                    .red()
+                    .to_string(),
+            );
         }
     }
 
