@@ -70,9 +70,6 @@ fn start_threads(
     handles
 }
 
-// Alias type to avoid verbosity / long lines
-type ChannelAPI<T> = (channel::Sender<T>, channel::Receiver<T>);
-
 fn main() {
     let args = match cli_args::Arguments::get() {
         Ok(arguments) => arguments,
@@ -87,8 +84,8 @@ fn main() {
 
     let display = display::Display::new();
 
-    let (file_sender, file_receiver): ChannelAPI<SQLiteFile> = channel::unbounded();
-    let (status_sender, status_receiver): ChannelAPI<Status> = channel::unbounded();
+    let (file_sender, file_receiver) = channel::unbounded();
+    let (status_sender, status_receiver) = channel::unbounded();
 
     let thread_handles = start_threads(file_receiver, status_sender.clone());
 
@@ -122,6 +119,8 @@ fn main() {
                 None
             }
         }).for_each(move |db_file| file_sender.send(db_file));
+
+    drop(status_sender);
 
     let mut total_delta: u64 = 0;
 
