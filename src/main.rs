@@ -89,37 +89,40 @@ fn main() {
 
     let thread_handles = start_threads(file_receiver, status_sender.clone());
 
-    WalkDir::new(&args.directory)
-        .into_iter()
-        .filter_map(|item| match item {
-            Ok(entry) => {
-                let path = entry.path();
-                if let Some(filename) = path.to_str() {
-                    display.progress(filename);
+    for directory in &args.directories {
+        WalkDir::new(directory)
+            .into_iter()
+            .filter_map(|item| match item {
+                Ok(entry) => {
+                    let path = entry.path();
+                    if let Some(filename) = path.to_str() {
+                        display.progress(filename);
+                    }
+                    Some(PathBuf::from(path))
                 }
-                Some(PathBuf::from(path))
-            }
-            Err(error) => {
-                status_sender.send(Status::Error(
-                    style(format!("Error during directory scan: {:?}", error))
-                        .red()
-                        .to_string(),
-                ));
-                None
-            }
-        }).filter_map(|path| match SQLiteFile::load(&path, args.aggresive) {
-            Ok(Some(db_file)) => Some(db_file),
-            Ok(None) => None,
-            Err(error) => {
-                status_sender.send(Status::Error(
-                    style(format!("Error reading from `{:?}`: {:?}", &path, error))
-                        .red()
-                        .to_string(),
-                ));
-                None
-            }
-        }).for_each(move |db_file| file_sender.send(db_file));
+                Err(error) => {
+                    status_sender.send(Status::Error(
+                        style(format!("Error during directory scan: {:?}", error))
+                            .red()
+                            .to_string(),
+                    ));
+                    None
+                }
+            }).filter_map(|path| match SQLiteFile::load(&path, args.aggresive) {
+                Ok(Some(db_file)) => Some(db_file),
+                Ok(None) => None,
+                Err(error) => {
+                    status_sender.send(Status::Error(
+                        style(format!("Error reading from `{:?}`: {:?}", &path, error))
+                            .red()
+                            .to_string(),
+                    ));
+                    None
+                }
+            }).for_each(|db_file| file_sender.send(db_file));
+    }
 
+    drop(file_sender);
     drop(status_sender);
 
     let mut total_delta: u64 = 0;

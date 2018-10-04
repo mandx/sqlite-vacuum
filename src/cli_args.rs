@@ -9,7 +9,7 @@ use failure::{Error, ResultExt};
 
 #[derive(Debug)]
 pub struct Arguments {
-    pub directory: PathBuf,
+    pub directories: Vec<PathBuf>,
     pub aggresive: bool,
 }
 
@@ -19,8 +19,10 @@ impl Arguments {
             .arg(
                 Arg::with_name("directory")
                     .value_name("DIRECTORY")
-                    .help("Sets the directory to walk")
-                    .required(false),
+                    .multiple(true)
+                    .takes_value(true)
+                    .help("Sets the directories to walk")
+                    .required(true),
             )
             .arg(
                 Arg::with_name("aggresive")
@@ -33,24 +35,32 @@ impl Arguments {
 
         let matches = app.get_matches_safe()?;
 
-        let cwd = match matches.value_of("directory") {
-            Some(arg_value) => {
-                let path = PathBuf::from(&arg_value);
-                let metadata = metadata(&path).context("Path is not valid or accessible")?;
-
-                if !metadata.is_dir() {
-                    bail!("`{}` is not a directory", arg_value);
-                }
-
-                path
-            }
-            None => current_dir().context("Can not access current working dir")?,
+        let directories = match matches.values_of("directory") {
+            Some(arg_values) => arg_values
+                .filter_map(|value| {
+                    let path = PathBuf::from(&value);
+                    match metadata(&path).map(|metadata| metadata.is_dir()) {
+                        Ok(is_dir) => {
+                            if is_dir {
+                                Some(path)
+                            } else {
+                                eprintln!("`{}` is not a directory", value);
+                                None
+                            }
+                        }
+                        Err(error) => {
+                            eprintln!("`{}` is not a valid directory or it is inaccessible: {:?}", value, error);
+                            None
+                        }
+                    }
+                }).collect(),
+            None => vec![current_dir().context("Can not access current working dir")?],
         };
 
         let aggresive = matches.is_present("aggresive");
 
         Ok(Self {
-            directory: cwd,
+            directories,
             aggresive,
         })
     }
