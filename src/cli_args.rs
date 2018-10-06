@@ -1,7 +1,8 @@
 extern crate clap;
 
+use std::collections::HashMap;
 use std::env::current_dir;
-use std::fs::metadata;
+use std::iter::Iterator;
 use std::path::PathBuf;
 
 use clap::{App, Arg};
@@ -9,7 +10,7 @@ use failure::{Error, ResultExt};
 
 #[derive(Debug)]
 pub struct Arguments {
-    pub directories: Vec<PathBuf>,
+    pub directories: HashMap<String, PathBuf>,
     pub aggresive: bool,
 }
 
@@ -35,26 +36,17 @@ impl Arguments {
 
         let matches = app.get_matches_safe()?;
 
-        let directories = match matches.values_of("directory") {
-            Some(arg_values) => arg_values
-                .filter_map(|value| {
-                    let path = PathBuf::from(&value);
-                    match metadata(&path).map(|metadata| metadata.is_dir()) {
-                        Ok(is_dir) => {
-                            if is_dir {
-                                Some(path)
-                            } else {
-                                eprintln!("`{}` is not a directory", value);
-                                None
-                            }
-                        }
-                        Err(error) => {
-                            eprintln!("`{}` is not a valid directory or it is inaccessible: {:?}", value, error);
-                            None
-                        }
-                    }
-                }).collect(),
-            None => vec![current_dir().context("Can not access current working dir")?],
+        let directories = if let Some(arg_values) = matches.values_of("directory") {
+            arg_values
+                .map(|value| (value.into(), PathBuf::from(value)))
+                .collect()
+        } else {
+            let mut m = HashMap::with_capacity(1);
+            m.insert(
+                "".into(),
+                current_dir().context("Can not access current working dir")?,
+            );
+            m
         };
 
         let aggresive = matches.is_present("aggresive");

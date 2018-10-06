@@ -1,5 +1,6 @@
 extern crate sqlite;
 
+use std::fmt;
 use std::fs::{metadata, File};
 use std::io::{BufReader, Read};
 use std::iter::Iterator;
@@ -80,7 +81,7 @@ impl SQLiteFile {
             .and_then(|connection| connection.execute("VACUUM;").and_then(|_| Ok(connection)))
             .and_then(|connection| connection.execute("REINDEX;"))
             .context(format!("Error vacuuming {:?}", self.path))
-            .or_else(|error| Err(error.into()))
+            .map_err(|error| error.into())
             .and_then(|_| {
                 Ok(VacuumResult {
                     db_file: &self,
@@ -88,6 +89,16 @@ impl SQLiteFile {
                     size_after: metadata(&self.path)?.len(),
                 })
             })
+    }
+}
+
+impl fmt::Display for SQLiteFile {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if let Some(s) = self.path.to_str() {
+            write!(f, "{}", s)
+        } else {
+            write!(f, "{:?}", self.path)
+        }
     }
 }
 

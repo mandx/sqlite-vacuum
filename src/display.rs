@@ -1,5 +1,5 @@
 use atty;
-use console::Term;
+use console::{style, Term};
 
 pub struct Display {
     istty: bool,
@@ -26,8 +26,14 @@ impl Display {
     }
 
     pub fn error(&self, msg: &str) {
-        if !self.istty || self.term.write_line(msg).is_err() {
-            eprintln!("{}", msg);
+        let styled = style(msg).red();
+        if !self.istty || self
+            .term
+            .write_line("")
+            .and_then(|_| self.term.write_line(&styled.to_string()))
+            .is_err()
+        {
+            eprintln!("{}", styled);
         }
     }
 
