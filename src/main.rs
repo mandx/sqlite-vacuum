@@ -1,13 +1,3 @@
-extern crate atty;
-extern crate clap;
-extern crate console;
-extern crate crossbeam_channel;
-extern crate failure;
-#[macro_use]
-extern crate lazy_static;
-extern crate num_cpus;
-extern crate walkdir;
-
 mod byte_format;
 mod cli_args;
 mod display;
@@ -19,14 +9,16 @@ use std::iter::Iterator;
 use std::path::PathBuf;
 use std::thread::{self, JoinHandle};
 
+use clap;
 use console::style;
 use crossbeam_channel::{self as channel, Receiver, Sender};
+use num_cpus;
 use walkdir::WalkDir;
 
-use byte_format::format_size;
-use cli_args::Arguments as CliArguments;
-use display::Display;
-use sqlite_file::SQLiteFile;
+use crate::byte_format::format_size;
+use crate::cli_args::Arguments as CliArguments;
+use crate::display::Display;
+use crate::sqlite_file::SQLiteFile;
 
 #[derive(Debug)]
 enum Status {

@@ -2,6 +2,7 @@
 name = "sqlite-vacuum"
 version = "0.1.0"
 authors = ["Armando Perez <gmandx@gmail.com>"]
+edition = "2018"
 
 [dependencies]
 atty = "^0.2"

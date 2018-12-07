@@ -1,5 +1,3 @@
-extern crate failure;
-
 use std::fmt;
 
 use failure::Backtrace;

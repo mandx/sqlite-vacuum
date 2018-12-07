@@ -1,5 +1,3 @@
-extern crate clap;
-
 use std::collections::HashMap;
 use std::env::current_dir;
 use std::iter::Iterator;

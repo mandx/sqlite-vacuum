@@ -1,5 +1,3 @@
-extern crate sqlite;
-
 use std::fmt;
 use std::fs::{metadata, File};
 use std::io::{BufReader, Read};
@@ -7,6 +5,8 @@ use std::iter::Iterator;
 use std::path::{Path, PathBuf};
 
 use failure::{Error, ResultExt};
+use lazy_static::lazy_static;
+use sqlite;
 
 lazy_static! {
     static ref SQLITE_MAGIC: Vec<u8> =
