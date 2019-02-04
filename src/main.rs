@@ -27,8 +27,6 @@ enum Status {
     Delta(u64),
 }
 
-// We do want this function to consume/own its parameters
-#[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
 fn start_threads(
     db_file_receiver: Receiver<SQLiteFile>,
     status_sender: Sender<Status>,
