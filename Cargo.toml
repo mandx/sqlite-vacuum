@@ -7,12 +7,12 @@ edition = "2018"
 [dependencies]
 atty = "^0.2"
 clap = "^2"
-console = "^0.6"
-crossbeam-channel = "^0.2"
+console = "^0.7"
+crossbeam = "^0.7"
 failure = "^0.1"
 lazy_static = "^1"
 num_cpus = "^1"
-sqlite = "^0.23"
+sqlite = "^0.25"
 walkdir = "^2"
 
 [profile.release]

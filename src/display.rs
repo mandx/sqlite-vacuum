@@ -15,11 +15,12 @@ impl Display {
     }
 
     pub fn progress(&self, msg: &str) {
-        if !self.istty || self
-            .term
-            .clear_line()
-            .and_then(|_| self.term.write_str(msg))
-            .is_err()
+        if !self.istty
+            || self
+                .term
+                .clear_line()
+                .and_then(|_| self.term.write_str(msg))
+                .is_err()
         {
             println!("{}", msg);
         }
@@ -27,22 +28,24 @@ impl Display {
 
     pub fn error(&self, msg: &str) {
         let styled = style(msg).red();
-        if !self.istty || self
-            .term
-            .write_line("")
-            .and_then(|_| self.term.write_line(&styled.to_string()))
-            .is_err()
+        if !self.istty
+            || self
+                .term
+                .write_line("")
+                .and_then(|_| self.term.write_line(&styled.to_string()))
+                .is_err()
         {
             eprintln!("{}", styled);
         }
     }
 
     pub fn write_line(&self, msg: &str) {
-        if !self.istty || self
-            .term
-            .clear_line()
-            .and_then(|_| self.term.write_line(msg))
-            .is_err()
+        if !self.istty
+            || self
+                .term
+                .clear_line()
+                .and_then(|_| self.term.write_line(msg))
+                .is_err()
         {
             println!("{}", msg);
         }

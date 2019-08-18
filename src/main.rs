@@ -11,7 +11,7 @@ use std::thread::{self, JoinHandle};
 
 use clap;
 use console::style;
-use crossbeam_channel::{self as channel, Receiver, Sender};
+use crossbeam::channel::{self as channel, Receiver, Sender};
 use num_cpus;
 use walkdir::WalkDir;
 
@@ -43,19 +43,31 @@ fn start_threads(
                 match db_file.vacuum() {
                     Ok(result) => {
                         let delta = result.delta();
-                        status.send(Status::Delta(delta));
-                        status.send(Status::Progress(format!(
+                        if let Err(error) = status.send(Status::Progress(format!(
                             "{} {} {}",
                             style("Found").bold().green(),
                             style(db_file.path().to_str().unwrap_or("?")).white(),
                             style(format_size(delta as f64)).yellow().bold(),
-                        )));
+                        )))
+                        .and_then(|_| {
+                            status.send(Status::Delta(delta))
+                        }) {
+                            eprintln!(
+                                "Status channel has been closed; Dropping message: {:?}",
+                                error
+                            );
+                        }
                     }
                     Err(error) => {
-                        status.send(Status::Error(format!(
+                        if let Err(error) = status.send(Status::Error(format!(
                             "Error vacuuming {}: {:?}",
                             db_file, error
-                        )));
+                        ))) {
+                            eprintln!(
+                                "Status channel has been closed; Dropping message: {:?}",
+                                error
+                            );
+                        }
                     }
                 };
             }
@@ -75,51 +87,95 @@ fn start_walking(
         let directories = directories
             .iter()
             .filter_map(|(arg, path)| match metadata(&path) {
-                Ok(meta) => if meta.is_dir() {
-                    Some(path)
-                } else {
-                    status_sender.send(Status::Error(format!("`{}` is not a directory", arg)));
-                    None
-                },
+                Ok(meta) => {
+                    if meta.is_dir() {
+                        Some(path)
+                    } else {
+                        if let Err(error) = status_sender.send(Status::Error(format!("`{}` is not a directory", arg))) {
+                            eprintln!(
+                                "Status channel has been closed; Dropping message: {:?}",
+                                error
+                            );
+                        }
+                        None
+                    }
+                }
                 Err(error) => {
-                    status_sender.send(Status::Error(format!(
+                    if let Err(error) = status_sender.send(Status::Error(format!(
                         "`{}` is not a valid directory or it is inaccessible: {:?}",
                         arg, error
-                    )));
+                    ))) {
+                        eprintln!(
+                            "Status channel has been closed; Dropping message: {:?}",
+                            error
+                        );
+                    }
                     None
                 }
             });
 
         for directory in directories {
-            WalkDir::new(directory)
+            for db_file in WalkDir::new(directory)
                 .into_iter()
                 .filter_map(|item| match item {
                     Ok(entry) => {
                         let path = entry.path();
                         if let Some(filename) = path.to_str() {
-                            status_sender.send(Status::Progress(filename.into()));
+                            if let Err(error) =
+                                status_sender.send(Status::Progress(filename.into()))
+                            {
+                                eprintln!(
+                                    "Status channel has been closed; Dropping message: {:?}",
+                                    error
+                                );
+
+                                return None;
+                            }
                         }
 
                         match SQLiteFile::load(path, aggresive) {
                             Ok(Some(db_file)) => Some(db_file),
                             Ok(None) => None,
                             Err(error) => {
-                                status_sender.send(Status::Error(format!(
+                                if let Err(error) = status_sender.send(Status::Error(format!(
                                     "Error reading from `{:?}`: {:?}",
                                     &path, error
-                                )));
+                                ))) {
+                                    eprintln!(
+                                        "Status channel has been closed: Dropping message: {:?}",
+                                        error
+                                    );
+                                }
+
                                 None
                             }
                         }
                     }
                     Err(error) => {
-                        status_sender.send(Status::Error(format!(
+                        if let Err(error) = status_sender.send(Status::Error(format!(
                             "Error during directory scan: {:?}",
                             error
-                        )));
+                        ))) {
+                                    eprintln!(
+                                        "Status channel has been closed: Dropping message: {:?}",
+                                        error
+                                    );
+                                }
+
                         None
                     }
-                }).for_each(|db_file| file_sender.send(db_file));
+                })
+            {
+                if let Err(error) = file_sender.send(db_file) {
+                    eprintln!(
+
+                        "Worker channel has been closed; Stopping directory enumeration: {:?}",
+                        error
+                    );
+
+                    return;
+                }
+            }
         }
     })
 }
