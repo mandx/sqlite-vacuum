@@ -43,15 +43,15 @@ fn start_threads(
                 match db_file.vacuum() {
                     Ok(result) => {
                         let delta = result.delta();
-                        if let Err(error) = status.send(Status::Progress(format!(
-                            "{} {} {}",
-                            style("Found").bold().green(),
-                            style(db_file.path().to_str().unwrap_or("?")).white(),
-                            style(format_size(delta as f64)).yellow().bold(),
-                        )))
-                        .and_then(|_| {
-                            status.send(Status::Delta(delta))
-                        }) {
+                        if let Err(error) = status
+                            .send(Status::Progress(format!(
+                                "{} {} {}",
+                                style("Found").bold().green(),
+                                style(db_file.path().to_str().unwrap_or("?")).white(),
+                                style(format_size(delta as f64)).yellow().bold(),
+                            )))
+                            .and_then(|_| status.send(Status::Delta(delta)))
+                        {
                             eprintln!(
                                 "Status channel has been closed; Dropping message: {:?}",
                                 error
@@ -91,7 +91,9 @@ fn start_walking(
                     if meta.is_dir() {
                         Some(path)
                     } else {
-                        if let Err(error) = status_sender.send(Status::Error(format!("`{}` is not a directory", arg))) {
+                        if let Err(error) = status_sender
+                            .send(Status::Error(format!("`{}` is not a directory", arg)))
+                        {
                             eprintln!(
                                 "Status channel has been closed; Dropping message: {:?}",
                                 error
@@ -156,11 +158,11 @@ fn start_walking(
                             "Error during directory scan: {:?}",
                             error
                         ))) {
-                                    eprintln!(
-                                        "Status channel has been closed: Dropping message: {:?}",
-                                        error
-                                    );
-                                }
+                            eprintln!(
+                                "Status channel has been closed: Dropping message: {:?}",
+                                error
+                            );
+                        }
 
                         None
                     }
@@ -168,7 +170,6 @@ fn start_walking(
             {
                 if let Err(error) = file_sender.send(db_file) {
                     eprintln!(
-
                         "Worker channel has been closed; Stopping directory enumeration: {:?}",
                         error
                     );
