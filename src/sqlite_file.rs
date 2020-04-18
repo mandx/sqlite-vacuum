@@ -1,17 +1,18 @@
-use std::fmt;
-use std::fs::{metadata, File};
-use std::io::{BufReader, Read};
-use std::iter::Iterator;
-use std::path::{Path, PathBuf};
+use std::{
+    fmt,
+    fs::{metadata, File},
+    io::{BufReader, Read},
+    iter::Iterator,
+    path::{Path, PathBuf},
+};
 
-use failure::{Error, ResultExt};
-use lazy_static::lazy_static;
 use sqlite;
 
-lazy_static! {
-    static ref SQLITE_MAGIC: Vec<u8> =
-        b"\x53\x51\x4c\x69\x74\x65\x20\x66\x6f\x72\x6d\x61\x74\x20\x33\x00".to_vec();
-}
+use crate::errors::AppError;
+
+static SQLITE_MAGIC: &[u8] = &[
+    0x53, 0x51, 0x4c, 0x69, 0x74, 0x65, 0x20, 0x66, 0x6f, 0x72, 0x6d, 0x61, 0x74, 0x20, 0x33, 0x00,
+];
 
 #[derive(Debug)]
 pub struct VacuumResult<'a> {
@@ -42,27 +43,21 @@ impl SQLiteFile {
         &self.path
     }
 
-    pub fn load(path: &Path, aggresive: bool) -> Result<Option<Self>, Error> {
-        if !metadata(path)?.is_file() {
+    pub fn load(path: &Path, aggresive: bool) -> Result<Option<Self>, AppError> {
+        let io_error_context = AppError::io_error_wraper(path);
+        if !metadata(path).map_err(io_error_context)?.is_file() {
             return Ok(None);
         }
 
         if aggresive {
-            let file = File::open(path).context(format!("Error checking {:?}", path))?;
-            let mut buffer: Vec<u8> = Vec::with_capacity(SQLITE_MAGIC.len());
-            let reader = BufReader::new(file);
-
-            // We loop over the `take` iterator instead of `collect`ing
-            // directly into the buffer vector because every byte read
-            // comes as a `Result`, and any error in any read means we
-            // end with an error.
-
-            for byte in reader.bytes().take(SQLITE_MAGIC.len()) {
-                buffer.push(byte?);
-            }
-
-            if buffer != *SQLITE_MAGIC {
-                return Ok(None);
+            let file = File::open(path).map_err(io_error_context)?;
+            for (read_byte, magic_byte) in BufReader::with_capacity(SQLITE_MAGIC.len(), file)
+                .bytes()
+                .zip(SQLITE_MAGIC.iter())
+            {
+                if read_byte.map_err(io_error_context)? != *magic_byte {
+                    return Ok(None);
+                }
             }
 
             Ok(Some(Self::new(path)))
@@ -74,21 +69,21 @@ impl SQLiteFile {
         }
     }
 
-    pub fn vacuum(&self) -> Result<VacuumResult, Error> {
-        let size_before = metadata(&self.path)?.len();
+    pub fn vacuum(&self) -> Result<VacuumResult, AppError> {
+        let wrap_io_error = AppError::io_error_wraper(&self.path);
+        let wrap_db_open_error = AppError::db_open_error_wraper(&self.path);
+        let wrap_db_exec_error = AppError::db_vacuum_error_wraper(&self.path);
 
-        sqlite::open(&self.path)
-            .and_then(|connection| connection.execute("VACUUM;").and_then(|_| Ok(connection)))
-            .and_then(|connection| connection.execute("REINDEX;"))
-            .context(format!("Error vacuuming {:?}", self.path))
-            .map_err(|error| error.into())
-            .and_then(|_| {
-                Ok(VacuumResult {
-                    db_file: &self,
-                    size_before,
-                    size_after: metadata(&self.path)?.len(),
-                })
-            })
+        let size_before = metadata(&self.path).map_err(wrap_io_error)?.len();
+
+        let connection = sqlite::open(&self.path).map_err(wrap_db_open_error)?;
+        connection.execute("VACUUM;").map_err(wrap_db_exec_error)?;
+        connection.execute("REINDEX;").map_err(wrap_db_exec_error)?;
+        Ok(VacuumResult {
+            db_file: &self,
+            size_before,
+            size_after: metadata(&self.path).map_err(wrap_io_error)?.len(),
+        })
     }
 }
 
@@ -103,5 +98,13 @@ impl fmt::Display for SQLiteFile {
 }
 
 #[cfg(test)]
-#[path = "./sqlite_file_tests.rs"]
-mod byte_format_tests;
+mod byte_format_tests {
+    use super::*;
+
+    #[test]
+    fn test_path_accessor() {
+        let path = PathBuf::from("/file");
+        let db = SQLiteFile::new(&path);
+        assert_eq!(db.path(), &path);
+    }
+}

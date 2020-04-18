@@ -1,10 +1,6 @@
-use std::collections::HashMap;
-use std::env::current_dir;
-use std::iter::Iterator;
-use std::path::PathBuf;
+use std::{collections::HashMap, env::current_dir, iter::Iterator, path::PathBuf};
 
-use clap::{App, Arg};
-use failure::{Error, ResultExt};
+use clap::{App, Arg, Error as ArgsError, ErrorKind as ArgsErrorKind};
 
 #[derive(Debug)]
 pub struct Arguments {
@@ -13,7 +9,7 @@ pub struct Arguments {
 }
 
 impl Arguments {
-    pub fn get() -> Result<Self, Error> {
+    pub fn get() -> Result<Self, ArgsError> {
         let app = App::new("sqlite-vacuum")
             .arg(
                 Arg::with_name("directory")
@@ -42,7 +38,11 @@ impl Arguments {
             let mut m = HashMap::with_capacity(1);
             m.insert(
                 "".into(),
-                current_dir().context("Can not access current working dir")?,
+                current_dir().map_err(|error| ArgsError {
+                    message: format!("Error accessing current working dir: {:?}", error),
+                    kind: ArgsErrorKind::Io,
+                    info: Some(vec!["directory".into()]),
+                })?,
             );
             m
         };

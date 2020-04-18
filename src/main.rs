@@ -1,6 +1,7 @@
 mod byte_format;
 mod cli_args;
 mod display;
+mod errors;
 mod sqlite_file;
 
 use std::collections::HashMap;
@@ -9,7 +10,6 @@ use std::iter::Iterator;
 use std::path::PathBuf;
 use std::thread::{self, JoinHandle};
 
-use clap;
 use console::style;
 use crossbeam::channel::{self as channel, Receiver, Sender};
 use num_cpus;
@@ -184,13 +184,7 @@ fn start_walking(
 fn main() {
     let args = match CliArguments::get() {
         Ok(arguments) => arguments,
-        Err(error) => match error.downcast::<clap::Error>() {
-            Ok(clap_error) => clap_error.exit(),
-            Err(other_error) => {
-                eprintln!("Error parsing arguments: {:?}", other_error);
-                std::process::exit(1);
-            }
-        },
+        Err(error) => error.exit(),
     };
 
     let (file_sender, file_receiver) = channel::unbounded();

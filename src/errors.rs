@@ -1,60 +1,65 @@
-use std::fmt;
+use sqlite::Error as SqliteError;
+use std::{
+    io::Error as IoError,
+    path::{Path, PathBuf},
+};
+use thiserror::Error as BaseError;
 
-use failure::Backtrace;
-use failure::{Context, Error, Fail};
+#[derive(BaseError, Debug)]
+pub enum AppError {
+    #[error("Error accessing `{filename:?}`: {source:?}")]
+    FileAccess { source: IoError, filename: PathBuf },
 
-#[derive(Debug)]
-struct AppError {
-    inner: Context<AppErrorKind>,
-}
+    #[error("Error vacuuming `{filename:?}`: {source:?}")]
+    DatabaseOpen {
+        source: SqliteError,
+        filename: PathBuf,
+    },
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Fail)]
-enum AppErrorKind {
-    #[fail(display = "Arguments error")]
-    Arguments,
-
-    #[fail(display = "File access error")]
-    FileAccess,
-
-    #[fail(display = "Database load error")]
-    DatabaseLoad,
-
-    #[fail(display = "Vacuum error")]
-    Vacuum,
-}
-
-impl Fail for AppError {
-    fn cause(&self) -> Option<&Fail> {
-        self.inner.cause()
-    }
-
-    fn backtrace(&self) -> Option<&Backtrace> {
-        self.inner.backtrace()
-    }
-}
-
-impl fmt::Display for AppError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Display::fmt(&self.inner, f)
-    }
+    #[error("Error vacuuming `{filename:?}`: {source:?}")]
+    Vacuum {
+        source: SqliteError,
+        filename: PathBuf,
+    },
 }
 
 impl AppError {
-    pub fn kind(&self) -> AppErrorKind {
-        *self.inner.get_context()
-    }
-}
-
-impl From<AppErrorKind> for AppError {
-    fn from(kind: AppErrorKind) -> AppError {
-        AppError {
-            inner: Context::new(kind),
+    pub fn io_error<P: AsRef<Path>>(source: IoError, filename: P) -> Self {
+        AppError::FileAccess {
+            source,
+            filename: filename.as_ref().into(),
         }
     }
-}
 
-impl From<Context<AppErrorKind>> for AppError {
-    fn from(inner: Context<AppErrorKind>) -> AppError {
-        AppError { inner }
+    pub fn io_error_wraper<'a, P: Copy + AsRef<Path> + 'a>(
+        filename: P,
+    ) -> impl Fn(IoError) -> Self + 'a + Copy {
+        move |source| Self::io_error(source, filename.as_ref())
+    }
+
+    pub fn db_open_error<P: AsRef<Path>>(source: SqliteError, filename: P) -> Self {
+        AppError::DatabaseOpen {
+            source,
+            filename: filename.as_ref().into(),
+        }
+    }
+
+    pub fn db_open_error_wraper<'a, P: Copy + AsRef<Path> + 'a>(
+        filename: P,
+    ) -> impl Fn(SqliteError) -> Self + 'a + Copy {
+        move |source| Self::db_open_error(source, filename.as_ref())
+    }
+
+    pub fn db_vacuum_error<P: AsRef<Path>>(source: SqliteError, filename: P) -> Self {
+        AppError::Vacuum {
+            source,
+            filename: filename.as_ref().into(),
+        }
+    }
+
+    pub fn db_vacuum_error_wraper<'a, P: Copy + AsRef<Path> + 'a>(
+        filename: P,
+    ) -> impl Fn(SqliteError) -> Self + 'a + Copy {
+        move |source| Self::db_vacuum_error(source, filename.as_ref())
     }
 }
