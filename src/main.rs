@@ -187,8 +187,8 @@ fn main() {
         Err(error) => error.exit(),
     };
 
-    let (file_sender, file_receiver) = channel::unbounded();
-    let (status_sender, status_receiver) = channel::unbounded();
+    let (file_sender, file_receiver) = channel::bounded(num_cpus::get());
+    let (status_sender, status_receiver) = channel::bounded(num_cpus::get());
 
     let threads = {
         let mut threads = start_threads(file_receiver, status_sender.clone());
