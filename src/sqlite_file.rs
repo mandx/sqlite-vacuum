@@ -22,8 +22,8 @@ pub struct VacuumResult<'a> {
 }
 
 impl<'a> VacuumResult<'a> {
-    pub fn delta(&self) -> u64 {
-        self.size_before - self.size_after
+    pub fn delta(&self) -> i128 {
+        i128::from(self.size_before) - i128::from(self.size_after)
     }
 }
 
@@ -79,6 +79,8 @@ impl SQLiteFile {
         let connection = sqlite::open(&self.path).map_err(wrap_db_open_error)?;
         connection.execute("VACUUM;").map_err(wrap_db_exec_error)?;
         connection.execute("REINDEX;").map_err(wrap_db_exec_error)?;
+        drop(connection);
+
         Ok(VacuumResult {
             db_file: &self,
             size_before,

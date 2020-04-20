@@ -18,13 +18,14 @@ use walkdir::WalkDir;
 use crate::byte_format::format_size;
 use crate::cli_args::Arguments as CliArguments;
 use crate::display::Display;
+use crate::errors::AppError;
 use crate::sqlite_file::SQLiteFile;
 
 #[derive(Debug)]
 enum Status {
-    Progress(String),
-    Error(String),
-    Delta(u64),
+    Progress(String, i128),
+    Error(AppError),
+    ErrorMsg(String),
 }
 
 fn start_threads(
@@ -43,15 +44,15 @@ fn start_threads(
                 match db_file.vacuum() {
                     Ok(result) => {
                         let delta = result.delta();
-                        if let Err(error) = status
-                            .send(Status::Progress(format!(
+                        if let Err(error) = status.send(Status::Progress(
+                            format!(
                                 "{} {} {}",
                                 style("Found").bold().green(),
-                                style(db_file.path().to_str().unwrap_or("?")).white(),
+                                style(db_file.path().to_string_lossy()).white(),
                                 style(format_size(delta as f64)).yellow().bold(),
-                            )))
-                            .and_then(|_| status.send(Status::Delta(delta)))
-                        {
+                            ),
+                            delta,
+                        )) {
                             eprintln!(
                                 "Status channel has been closed; Dropping message: {:?}",
                                 error
@@ -59,15 +60,7 @@ fn start_threads(
                         }
                     }
                     Err(error) => {
-                        if let Err(error) = status.send(Status::Error(format!(
-                            "Error vacuuming {}: {:?}",
-                            db_file, error
-                        ))) {
-                            eprintln!(
-                                "Status channel has been closed; Dropping message: {:?}",
-                                error
-                            );
-                        }
+                        status.send(Status::Error(error)).ok();
                     }
                 };
             }
@@ -91,27 +84,16 @@ fn start_walking(
                     if meta.is_dir() {
                         Some(path)
                     } else {
-                        if let Err(error) = status_sender
-                            .send(Status::Error(format!("`{}` is not a directory", arg)))
-                        {
-                            eprintln!(
-                                "Status channel has been closed; Dropping message: {:?}",
-                                error
-                            );
-                        }
+                        status_sender
+                            .send(Status::Error(AppError::not_directory(arg, path)))
+                            .ok();
                         None
                     }
                 }
                 Err(error) => {
-                    if let Err(error) = status_sender.send(Status::Error(format!(
-                        "`{}` is not a valid directory or it is inaccessible: {:?}",
-                        arg, error
-                    ))) {
-                        eprintln!(
-                            "Status channel has been closed; Dropping message: {:?}",
-                            error
-                        );
-                    }
+                    status_sender
+                        .send(Status::Error(AppError::directory_access(error, path)))
+                        .ok();
                     None
                 }
             });
@@ -122,48 +104,22 @@ fn start_walking(
                 .filter_map(|item| match item {
                     Ok(entry) => {
                         let path = entry.path();
-                        if let Some(filename) = path.to_str() {
-                            if let Err(error) =
-                                status_sender.send(Status::Progress(filename.into()))
-                            {
-                                eprintln!(
-                                    "Status channel has been closed; Dropping message: {:?}",
-                                    error
-                                );
-
-                                return None;
-                            }
-                        }
-
                         match SQLiteFile::load(path, aggresive) {
                             Ok(Some(db_file)) => Some(db_file),
                             Ok(None) => None,
                             Err(error) => {
-                                if let Err(error) = status_sender.send(Status::Error(format!(
-                                    "Error reading from `{:?}`: {:?}",
-                                    &path, error
-                                ))) {
-                                    eprintln!(
-                                        "Status channel has been closed: Dropping message: {:?}",
-                                        error
-                                    );
-                                }
-
+                                status_sender.send(Status::Error(error)).ok();
                                 None
                             }
                         }
                     }
                     Err(error) => {
-                        if let Err(error) = status_sender.send(Status::Error(format!(
-                            "Error during directory scan: {:?}",
-                            error
-                        ))) {
-                            eprintln!(
-                                "Status channel has been closed: Dropping message: {:?}",
+                        status_sender
+                            .send(Status::ErrorMsg(format!(
+                                "Error during directory scan: {:?}",
                                 error
-                            );
-                        }
-
+                            )))
+                            .ok();
                         None
                     }
                 })
@@ -187,8 +143,9 @@ fn main() {
         Err(error) => error.exit(),
     };
 
-    let (file_sender, file_receiver) = channel::bounded(num_cpus::get());
-    let (status_sender, status_receiver) = channel::bounded(num_cpus::get());
+    let cpu_count = num_cpus::get();
+    let (file_sender, file_receiver) = channel::bounded(cpu_count);
+    let (status_sender, status_receiver) = channel::bounded(cpu_count);
 
     let threads = {
         let mut threads = start_threads(file_receiver, status_sender.clone());
@@ -202,13 +159,18 @@ fn main() {
     };
 
     let display = Display::new();
-    let mut total_delta: u64 = 0;
+    let mut total_delta = 0;
 
     for status in status_receiver {
         match status {
-            Status::Progress(msg) => display.progress(&msg),
-            Status::Error(msg) => display.error(&msg),
-            Status::Delta(delta) => total_delta += delta,
+            Status::Progress(msg, delta) => {
+                display.progress(&msg);
+                total_delta += delta;
+            }
+            Status::ErrorMsg(msg) => display.error(&msg),
+            Status::Error(error) => {
+                display.error(&format!("{}", error));
+            }
         }
     }
 

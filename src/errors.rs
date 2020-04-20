@@ -7,16 +7,25 @@ use thiserror::Error as BaseError;
 
 #[derive(BaseError, Debug)]
 pub enum AppError {
-    #[error("Error accessing `{filename:?}`: {source:?}")]
+    #[error("Not a directory `{directory}`")]
+    NotDirectory {
+        argument: String,
+        directory: PathBuf,
+    },
+
+    #[error("Error accessing directory `{directory}`: {source}")]
+    DirectoryAccess { source: IoError, directory: PathBuf },
+
+    #[error("Error accessing file `{filename}`: {source}")]
     FileAccess { source: IoError, filename: PathBuf },
 
-    #[error("Error vacuuming `{filename:?}`: {source:?}")]
+    #[error("Error opening `{filename}`: {source}")]
     DatabaseOpen {
         source: SqliteError,
         filename: PathBuf,
     },
 
-    #[error("Error vacuuming `{filename:?}`: {source:?}")]
+    #[error("Error vacuuming `{filename}`: {source}")]
     Vacuum {
         source: SqliteError,
         filename: PathBuf,
@@ -24,6 +33,20 @@ pub enum AppError {
 }
 
 impl AppError {
+    pub fn not_directory<S: AsRef<str>, P: AsRef<Path>>(argument: S, directory: P) -> Self {
+        AppError::NotDirectory {
+            argument: argument.as_ref().into(),
+            directory: directory.as_ref().into(),
+        }
+    }
+
+    pub fn directory_access<P: AsRef<Path>>(source: IoError, directory: P) -> Self {
+        AppError::DirectoryAccess {
+            source,
+            directory: directory.as_ref().into(),
+        }
+    }
+
     pub fn io_error<P: AsRef<Path>>(source: IoError, filename: P) -> Self {
         AppError::FileAccess {
             source,
