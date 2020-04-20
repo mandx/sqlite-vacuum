@@ -12,7 +12,6 @@ use std::thread::{self, JoinHandle};
 
 use console::style;
 use crossbeam::channel::{self as channel, Receiver, Sender};
-use num_cpus;
 use walkdir::WalkDir;
 
 use crate::byte_format::format_size;

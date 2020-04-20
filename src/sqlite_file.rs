@@ -6,8 +6,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use sqlite;
-
 use crate::errors::AppError;
 
 static SQLITE_MAGIC: &[u8] = &[

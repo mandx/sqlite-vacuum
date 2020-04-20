@@ -1,4 +1,3 @@
-use atty;
 use console::{style, Term};
 
 pub struct Display {
