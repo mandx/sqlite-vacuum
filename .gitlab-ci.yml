@@ -32,23 +32,29 @@ test:stable:
   image: "rust:latest"
   <<: *cargo_test
 
+# Always want to run rustfmt and clippy against our code, to ensure that
+# we aren't using any anti-patterns or failing to follow our style guide
+lint:rustfmt:
+  image: "rust:latest"
+  script:
+    - rustup component add rustfmt
+    - cargo fmt -- --check
+
+lint:clippy:
+  image: "rust:latest"
+  script:
+    - rustup component add clippy
+    - cargo clippy -- -D warnings # Turn all warnings into errors
+
+# Some nightly canary checks
 test:nightly:
   image: "rustlang/rust:nightly"
   allow_failure: true
   <<: *cargo_test
 
-# Always want to run rustfmt and clippy against our tests, to ensure that
-# we aren't using any anti-patterns or failing to follow our style guide
-lint:rustfmt:
-  image: "rust:latest"
-  allow_failure: true
-  script:
-    - rustup component add rustfmt-preview
-    - cargo fmt -- --check
-
-lint:clippy:
+lint:clippy:nightly:
   image: "rustlang/rust:nightly"
   allow_failure: true
   script:
-    - rustup component add clippy-preview
+    - rustup component add clippy
     - cargo +nightly clippy -- -D warnings # Turn all warnings into errors
