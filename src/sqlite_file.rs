@@ -12,6 +12,9 @@ static SQLITE_MAGIC: &[u8] = &[
     0x53, 0x51, 0x4c, 0x69, 0x74, 0x65, 0x20, 0x66, 0x6f, 0x72, 0x6d, 0x61, 0x74, 0x20, 0x33, 0x00,
 ];
 
+// From https://www.sqlite.org/fileformat.html
+const SQLITE_MIN_SIZE: u64 = 512;
+
 #[derive(Debug)]
 pub struct VacuumResult<'a> {
     db_file: &'a SQLiteFile,
@@ -43,7 +46,17 @@ impl SQLiteFile {
 
     pub fn load(path: &Path, aggresive: bool) -> Result<Option<Self>, AppError> {
         let io_error_context = AppError::io_error_wraper(path);
-        if !metadata(path).map_err(io_error_context)?.is_file() {
+        let file_metadata = metadata(path).map_err(io_error_context)?;
+
+        if !file_metadata.is_file() {
+            return Ok(None);
+        }
+
+        if file_metadata.len() < SQLITE_MIN_SIZE {
+            // There's a minimum file size for SQLite databases,
+            // so we can skip the files that are too simply too small
+            // to be considered a valid database.
+            // See https://www.sqlite.org/fileformat.html for more.
             return Ok(None);
         }
 
